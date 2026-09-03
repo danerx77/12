@@ -1555,6 +1555,8 @@ class EditorTab(QWidget):
         menu.addSeparator()
         act_ignore_file = menu.addAction("🚫 Pomiń nieprzetłumaczone w tym pliku…")
         act_ignore_match = menu.addAction("🚫 Pomiń pasujące do wzorca…")
+        act_bulk = menu.addAction("🏷️ Oznacz pasujące do wzorca… (zakresy, CJK)")
+        act_adapt = menu.addAction(f"⇢ Dopasuj znaczniki do oryginału{many}")
         menu.addSeparator()
         skipped_total = sum(1 for s in self.segments if s.ignored)
         act_restore_all = menu.addAction(
@@ -1588,6 +1590,12 @@ class EditorTab(QWidget):
             return
         if action == act_ignore_match:
             self.ignore_matching()
+            return
+        if action == act_bulk:
+            self.bulk_mark_matching()
+            return
+        if action == act_adapt:
+            self.adapt_codes_selected()
             return
         if action == act_find:
             self.find_selected_word()
@@ -2403,6 +2411,45 @@ class EditorTab(QWidget):
             if hasattr(self.app.settings_tab, "load_exclusions"):
                 self.app.settings_tab.load_exclusions()
             self.status_message.emit("Dodano regułę wykluczania")
+
+    def adapt_codes_selected(self) -> None:
+        """Dopasowuje znaczniki (\\n/\\l/\\p) tłumaczenia do oryginału.
+
+        Działa na zaznaczonych wierszach siatki (albo bieżącym segmencie).
+        Tłumaczenie przełamuje się w zbliżonych miejscach co tekst źródłowy —
+        dzięki temu w grze linie mają zbliżoną szerokość jak w oryginale.
+        """
+        from ..core.tags import adapt_codes
+
+        self._store_current()
+        indices = self.selected_indices()
+        if not indices:
+            return
+        changed = 0
+        history: list = []
+        for index in indices:
+            if not (0 <= index < len(self.segments)):
+                continue
+            seg = self.segments[index]
+            if seg.ignored or not (seg.target or "").strip():
+                continue
+            new_text = adapt_codes(seg.source, seg.target)
+            if new_text != seg.target:
+                history.append((index, "target", seg.target))
+                seg.target = new_text
+                changed += 1
+                self._update_row(index)
+        if not changed:
+            self.status_message.emit("Znaczniki już pasują do oryginału")
+            return
+        # Segment otwarty w edytorze musi od razu pokazać nową treść, bo
+        # kolejne _store_current() odczyta tekst prosto z pola.
+        if self.current_index in set(indices) and 0 <= self.current_index < len(self.segments):
+            self.set_target_text(self.segments[self.current_index].target)
+        self._push_undo(f"dopasowanie znaczników ({changed})", history)
+        self.update_progress()
+        self._save_quietly()
+        self.status_message.emit(f"⇢ Dopasowano znaczniki do oryginału: {changed} segmentów")
 
     def _update_row(self, index: int) -> None:
         for row in range(self.grid.rowCount()):

@@ -30,7 +30,7 @@ from difflib import SequenceMatcher
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .settings import SettingsManager
-from .tags import adapt_translation, normalize_tags_for_comparison
+from .tags import adapt_codes, adapt_translation, normalize_tags_for_comparison
 
 try:  # numpy pozwala wybrać najlepsze wyniki bez sortowania całej macierzy
     import numpy as _np
@@ -161,6 +161,19 @@ def unify_control_codes(text: str) -> str:
     result = _CONTROL_CODE_RE.sub(" ", text)
     result = result.replace("\r\n", " ").replace("\n", " ").replace("\r", " ").replace("\t", " ")
     return re.sub(r"\s+", " ", result).strip()
+
+
+def _adapt_to_segment(source: str, target: str) -> str:
+    """Dopasowuje podpowiedź TM do bieżącego segmentu.
+
+    Najpierw tagi (``adapt_translation``), potem pozycje znaczników
+    ``\\n``/``\\l``/``\\p`` — dzięki temu tłumaczenie z pamięci przełamuje
+    się w tych samych miejscach co oryginał (ustawienie ``tm.adapt.codes``).
+    """
+    out = adapt_translation(source, target)
+    if SettingsManager.instance().get_bool("tm.adapt.codes", True):
+        out = adapt_codes(source, out)
+    return out
 
 
 def _norm_key(text: str) -> str:
@@ -709,7 +722,7 @@ class TranslationMemory:
                 seen.add(db_target)
                 matches.append(
                     TranslationMatch(db_source, db_target,
-                                     adapt_translation(source, db_target),
+                                     _adapt_to_segment(source, db_target),
                                      sim, sim == 100)
                 )
                 if len(matches) >= limit:
@@ -774,7 +787,7 @@ class TranslationMemory:
             if filter_untranslated and _is_mostly_untranslated(db_source, db_target):
                 continue
             results[pos] = TranslationMatch(
-                db_source, db_target, adapt_translation(source, db_target), best_score, best_score == 100
+                db_source, db_target, _adapt_to_segment(source, db_target), best_score, best_score == 100
             )
 
         if progress is not None:

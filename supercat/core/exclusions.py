@@ -130,6 +130,10 @@ class ExclusionRule:
         return ""
 
 
+#: Wersja zestawu reguł wbudowanych. Projekty zapisane starszą wersją
+#: (bez tego pola) dostają brakujące reguły przy pierwszym odczycie.
+BUILTIN_VERSION = 1
+
 #: Gotowe reguły dla plików gier – proponowane przy pierwszym uruchomieniu.
 #: Zakresy Unicode pisma CJK: japoński (hiragana, katakana), chiński (hanzi),
 #: koreański (hangul) oraz japońska interpunkcja i pełnej szerokości spacja.
@@ -195,7 +199,7 @@ def expand_ranges(pattern: str) -> List[str]:
 
 BUILTIN_PRESETS: List[Tuple[str, ExclusionRule]] = [
     ("Teksty po japońsku / chińsku / koreańsku",
-     ExclusionRule(CJK_PATTERN, "regex", False, False,
+     ExclusionRule(CJK_PATTERN, "regex", True, False,
                    "segmenty zawierające znaki CJK – nietknięty oryginał")),
     ("Nagłówki plików  <<< FILE: … >>>",
      ExclusionRule("<<< FILE:*>>>", "wildcard", True, False,
@@ -222,7 +226,7 @@ BUILTIN_PRESETS: List[Tuple[str, ExclusionRule]] = [
 
 
 def default_rules() -> List[ExclusionRule]:
-    """Zestaw startowy: włączony tylko nagłówek <<< FILE: … >>>."""
+    """Zestaw startowy dla nowego projektu — wszystkie reguły wbudowane włączone."""
     return [ExclusionRule.from_dict(rule.to_dict()) for _name, rule in BUILTIN_PRESETS]
 
 
@@ -237,13 +241,28 @@ class ExclusionSet:
 
     # ------------------------------------------------------- serializacja
     def to_dict(self) -> dict:
-        return {"enabled": self.enabled, "rules": [r.to_dict() for r in self.rules]}
+        return {
+            "enabled": self.enabled,
+            "rules": [r.to_dict() for r in self.rules],
+            "builtin_version": BUILTIN_VERSION,
+        }
 
     @staticmethod
     def from_dict(data: Optional[dict]) -> "ExclusionSet":
         if not data:
             return ExclusionSet(default_rules())
         rules = [ExclusionRule.from_dict(r) for r in data.get("rules", [])]
+        # Nowe reguły wbudowane (np. „teksty po japońsku / chińsku”) mają
+        # działać także w starych projektach: tych, których nie ma w
+        # zapisanej liście, dokładamy (domyślnie włączone — tak samo jak
+        # przy nowym projekcie). Ręcznie zmienione/wpisane reguły zostają
+        # nietknięte. Projekty zapisane bieżącą wersją (z „builtin_version”)
+        # odczytujemy 1:1 — ich lista reguł jest już kompletna.
+        if int(data.get("builtin_version", 0)) < BUILTIN_VERSION:
+            have = {r.pattern for r in rules}
+            for _name, builtin in BUILTIN_PRESETS:
+                if builtin.pattern not in have:
+                    rules.append(ExclusionRule.from_dict(builtin.to_dict()))
         return ExclusionSet(rules, bool(data.get("enabled", True)))
 
     # ------------------------------------------------------------ użycie

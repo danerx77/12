@@ -18,6 +18,8 @@ DEFAULTS: Dict[str, Any] = {
     "fuzzy.threshold": 70,
     "tm.max.results": 10,
     "tm.adapt.tags": True,
+    #: Podpowiedzi TM: dopasuj pozycje \\n/\\l/\\p do bieżącego segmentu.
+    "tm.adapt.codes": True,
     "tm.filter.english": True,
     #: Nie zapisuj do TM wpisów, których tłumaczenie zostało po angielsku.
     "tm.reject.untranslated": False,

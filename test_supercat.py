@@ -568,6 +568,9 @@ def main():
     check("wsad: brak trafienia na nieznanym", batch[2] is None)
     check("wsad zgodny z pojedynczym wyszukiwaniem",
           batch[0].similarity == tm.find_fuzzy_matches("Hello world.", 70, 1)[0].similarity)
+    # przywracamy domyślny stan — inaczej kolejna linia testów (w nowym
+    # przebiegu) widziałaby wartość brudzoną przez ten test
+    _sm.set("tm.sentence.matching.enabled", False)
 
     import time as _t
     big = TranslationMemory()
@@ -592,6 +595,9 @@ def main():
 
     # ------------------------------- znaczniki \n oraz QuickTrans / silniki
     print("\n5c. Znaczniki \\n, \\p (pliki gier) i wiele silników MT")
+    # sekcja zależy od dopasowania zdań — włączamy ją jawnie (bez polegania
+    # na stanie pozostawionym przez wcześniejsze sekcje)
+    _sm.set("tm.sentence.matching.enabled", True)
     tm_g = TranslationMemory()
     tm_g.init_for_project(os.path.join(tmp, "tm_games"))
     tm_g.add(r"Thank you for using the MYSTERY\nGIFT System.",
@@ -3345,6 +3351,8 @@ Dziękujemy za korzystanie z MYSTERY"""
     ghosts = guard.find_sentence_matches(probe2)
     check("brak wpisów widmo po wyczyszczeniu TM", ghosts == [], str(len(ghosts)))
     guard.close()
+    # przywracamy domyślny stan funkcji (test zostawiał go włączony)
+    _sm.set("tm.sentence.matching.enabled", False)
 
     # --- edycja TM w miejscu (bez okna) + lista pamięci ---
     from PyQt6.QtWidgets import QAbstractItemView as _AIV
@@ -3673,6 +3681,144 @@ Dziękujemy za korzystanie z MYSTERY"""
     check("licznik postępu uwzględnia oznaczone zakresy",
           sum(1 for sg in bed.segments if sg.status == "translated") == 5,
           str(sum(1 for sg in bed.segments if sg.status == "translated")))
+
+    # ---------------------------- Dopasowanie znaczników do oryginału
+    print("\n24d. Dopasowanie znaczników (\\n, \\p) do oryginału")
+    from supercat.core.tags import (adapt_codes, codes_structure_matches,
+                                    split_code_structure, _flatten_lines)
+
+    en1 = ("A strange seed was planted on its back at\\n"
+           "birth. The plant sprouts and grows with\\nthis POKéMON.")
+    pl1 = ("Dziwne nasiono zostało zasadzone na jego plecach od urodzenia. "
+           "Roślina się rozwija i rośnie z tym Pokémonem.")
+
+    adapted = adapt_codes(en1, pl1)
+    check("dopasowanie wstawia tyle \\n, ile oryginał",
+          adapted.count("\\n") == 2, repr(adapted))
+    flat_adapted = _flatten_lines(split_code_structure(adapted)[0])
+    check("dopasowanie nie zmienia treści",
+          flat_adapted == pl1.strip(), repr(flat_adapted))
+    import re as _re2
+    _boundary_ok = True
+    _pos = 0
+    for _k, (_ln, _code) in enumerate(split_code_structure(adapted)[0][:-1]):
+        _pos += len(_ln) + _k          # + wcześniejsze spacje złączeniowe
+        if _pos >= len(flat_adapted) or flat_adapted[_pos] != " ":
+            _boundary_ok = False
+    check("przełamania padają na granice wyrazów", _boundary_ok, adapted)
+    check("treść bez kodów = oryginał (porównanie treści)",
+          _flatten_lines(split_code_structure(adapted)[0]) == pl1.strip(),
+          repr(_flatten_lines(split_code_structure(adapted)[0])))
+    _fracs = []
+    _pos = 0
+    for _ln, _code in split_code_structure(adapted)[0][:-1]:
+        _pos += len(_ln)
+        _fracs.append(_pos / len(flat_adapted))
+    _src_fracs = [43 / 96, 83 / 96]
+    check("przełamania są proporcjonalne do oryginału",
+          all(abs(a - b) < 0.25 for a, b in zip(_fracs, _src_fracs)),
+          f"{[round(f,2) for f in _fracs]} vs {[round(f,2) for f in _src_fracs]}")
+
+    same = adapt_codes("One \\nTwo", "Jedno \\nDwa")
+    check("ta sama struktura kodów zostaje nietknięta",
+          same == "Jedno \\nDwa", repr(same))
+    check("struktura zgodna — rozpoznana",
+          codes_structure_matches("One \\nTwo", "Jedno \\nDwa"))
+    check("struktura różna — rozpoznana",
+          not codes_structure_matches(en1, pl1))
+    check("brak kodów w źródle usuwa kody z tłumaczenia",
+          adapt_codes("Just text", "Jedno\\nDwa") == "Jedno Dwa",
+          repr(adapt_codes("Just text", "Jedno\\nDwa")))
+
+    en_par = "Pierwszy akapit tu.\\pDrugi akapit dalej."
+    pl_par = "Pierwszy po polsku. Drugi akapit po polsku na dalszym ciągu."
+    adapted_par = adapt_codes(en_par, pl_par)
+    check("brak akapitu w tłumaczeniu — nie wymyślamy \\p",
+          adapted_par.count("\\p") == 0, repr(adapted_par))
+    check("treść po \\p nie zmianiona",
+          _re2.sub(r"\\[nNlLpP]", "", adapted_par) == pl_par,
+          repr(_re2.sub(r"\\[nNlLpP]", "", adapted_par)))
+
+    en_cjk = "line one here\\nline two here"
+    pl_cjk = "これはテストのテキストです"
+    adapted_cjk = adapt_codes(en_cjk, pl_cjk)
+    check("tekst CJK (bez spacji) też się dopasowuje",
+          adapted_cjk.count("\\n") == 1, repr(adapted_cjk))
+    check("treść CJK nietknięta",
+          _re2.sub(r"\\[nNlLpP]", "", adapted_cjk) == pl_cjk,
+          repr(_re2.sub(r"\\[nNlLpP]", "", adapted_cjk)))
+
+    adapted_edge = adapt_codes(en1, " " + pl1)
+    check("wiodąca spacja (wcięcie) jest zachowana",
+          adapted_edge.startswith(" "), repr(adapted_edge[:3]))
+
+    # --- dopasowanie w podpowiedziach TM ---
+    tm_dir = os.path.join(tmp, "tm_kody")
+    os.makedirs(tm_dir, exist_ok=True)
+    tmm = TranslationMemory()
+    tmm.init_for_project(tm_dir)
+    check("wpis TM zagnany do bazy", tmm.add(en1, pl1, "en", "pl"))
+    hits = tmm.find_fuzzy_matches(en1, 70, 5)
+    check("TM zwraca dopasowanie", bool(hits), str(len(hits)))
+    if hits:
+        sug = hits[0].text
+        check("podpowiedź TM ma przełamania jak segment",
+              sug.count("\\n") == 2, repr(sug))
+        check("podpowiedź TM nie zmienia treści",
+              _flatten_lines(split_code_structure(sug)[0]) == pl1.strip(),
+              repr(sug))
+
+    smgr = SettingsManager.instance()
+    _prev_codes = smgr.get_bool("tm.adapt.codes", True)
+    smgr.set("tm.adapt.codes", False)
+    hits2 = tmm.find_fuzzy_matches(en1, 70, 5)
+    smgr.set("tm.adapt.codes", _prev_codes)
+    check("wyłączone dopasowanie nie wstawia kodów",
+          bool(hits2) and hits2[0].text.count("\\n") == 0,
+          repr(hits2[0].text if hits2 else ""))
+
+    # --- edytor: dopasowanie na zaznaczonym segmencie ---
+    cd_dir = os.path.join(tmp, "kodowypunkt")
+    os.makedirs(cd_dir, exist_ok=True)
+    cp2 = ProjectManager().create_project("Kody", "en", "pl", cd_dir)
+    with open(os.path.join(cp2.source_path, "k.txt"), "w", encoding="utf-8") as fh:
+        fh.write("A strange seed was planted on its back at\\nbirth.")
+    cw = MainWindow()
+    cw.open_project_path(cp2.project_file_path)
+    cw.load_source_files(auto=True)
+    ced = cw.editor_tab
+    check("wczytano segment z kodami",
+          len(ced.segments) == 1 and "at\\nbirth" in (ced.segments[0].source or ""),
+          repr([sg.source for sg in ced.segments]))
+    check("edytor ma dopasowanie znaczników",
+          hasattr(ced, "adapt_codes_selected"))
+    ced.current_index = 0
+    ced.load_segment(0)
+    ced.set_target_text("Dziwne nasiono zostało zasadzone na jego plecach.")
+    ced.adapt_codes_selected()
+    check("edytor dopasował znaczniki segmentu",
+          (ced.segments[0].target or "").count("\\n") == 1,
+          repr(ced.segments[0].target))
+    check("edytor: treść bez zmian po dopasowaniu",
+          _flatten_lines(split_code_structure(ced.segments[0].target or "")[0])
+          == "Dziwne nasiono zostało zasadzone na jego plecach.",
+          repr(ced.segments[0].target))
+
+    # --- stare projekty dostają nowe reguły wbudowane ---
+    from supercat.core.exclusions import BUILTIN_PRESETS, CJK_PATTERN
+    saved = {"enabled": True,
+             "rules": [{"pattern": "MÓJ_WZORAC", "match_type": "contains",
+                        "enabled": True, "case_sensitive": False,
+                        "comment": "", "file_filter": ""}]}
+    merged = ExclusionSet.from_dict(saved)
+    check("zapisana reguła zostaje nietknięta",
+          any(r.pattern == "MÓJ_WZORAC" for r in merged.rules))
+    check("stary projekt dostaje regułę CJK (włączoną)",
+          any(r.pattern == CJK_PATTERN and r.enabled for r in merged.rules),
+          str([(r.pattern[:20], r.enabled) for r in merged.rules][:4]))
+    check("stary projekt dostaje wszystkie reguły wbudowane",
+          all(any(r.pattern == b.pattern for r in merged.rules)
+              for _n, b in BUILTIN_PRESETS))
 
     # ---------------------------- Nawigacja klawiszami
     print("\n24b. Strzałki i zaznaczanie w siatce")

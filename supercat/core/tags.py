@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import List
 
+from .textutil import split_edges
+
 
 class TagType(str, Enum):
     VARIABLE = "VARIABLE"
@@ -131,3 +133,172 @@ def normalize_tags_for_comparison(text: str | None) -> str:
     result = re.sub(r"<[^>]+>", "<", result)
     result = re.sub(r"\[[^\]]+\]", "[", result)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Dopasowanie znaczników (\\n, \\l, \\p) do oryginału
+# ---------------------------------------------------------------------------
+
+#: Kod, który przełamuje wiersz w plikach gier: \\n (spacja w grze), \\l (bez),
+#: \\p (nowy akapit). Wielkość liter nie ma znaczenia.
+_BREAK_RE = re.compile(r"\\[pPnNlL]")
+
+#: Znak, po którym można bezpiecznie przełamać wiersz (także pełnej
+#: szerokości spacja CJK).
+_BREAKABLE_AFTER = (" ", "\u3000")
+
+
+def split_code_structure(text: str | None) -> List[List[Tuple[str, str]]]:
+    """Rozbija tekst na akapity (``\\p``) i wiersze (``\\n`` / ``\\l``).
+
+    Zwraca listę akapitów; każdy akapit to lista krotek
+    ``(treść_wiersza, kod_po_wierszu)`` — kod pustego łańcucha oznacza, że
+    wiersz jest ostatni w akapicie. Tekst bez kodów to jeden akapit
+    z jednym wierszem.
+    """
+    if not text:
+        return []
+    paragraphs: List[List[Tuple[str, str]]] = []
+    lines: List[Tuple[str, str]] = []
+    last = 0
+    for match in _BREAK_RE.finditer(text):
+        lines.append((text[last:match.start()], match.group()))
+        last = match.end()
+        if match.group()[1].lower() == "p":
+            paragraphs.append(lines)
+            lines = []
+    lines.append((text[last:], ""))
+    paragraphs.append(lines)
+    return paragraphs
+
+
+def codes_structure_matches(source: str | None, target: str | None) -> bool:
+    """Czy tłumaczenie ma TĄ SAMĄ strukturę kodów co oryginał.
+
+    Porównujemy tylko układ (ile akapitów, ile wierszy w akapicie) — nie
+    to, który dokładnie znak to przełamał (\\n czy \\l).
+    """
+    src = split_code_structure(source or "")
+    tgt = split_code_structure(target or "")
+    if len(src) != len(tgt):
+        return False
+    for src_par, tgt_par in zip(src, tgt):
+        if len(src_par) != len(tgt_par):
+            return False
+    return True
+
+
+def _flatten_lines(lines: List[Tuple[str, str]]) -> str:
+    """Łączy wiersze w jeden ciąg, wstawiając spację TYLKO w miejscach złącza."""
+    parts: List[str] = []
+    for text, _code in lines:
+        if (parts and text
+                and not parts[-1].endswith(_BREAKABLE_AFTER)
+                and not text.startswith(_BREAKABLE_AFTER)):
+            parts.append(" ")
+        parts.append(text)
+    return "".join(parts)
+
+
+def _find_break(text: str, pos: int, window: int) -> Tuple[int, bool]:
+    """Miejsce bezpiecznego przełamania w pobliżu ``pos``.
+
+    Zwraca ``(pozycja, czy_zjada_spację)``: przełamanie leży po spacji
+    (spacja znika — jej rolę przejmuje kod, jak w oryginale) albo, gdy w
+    okolicy nie ma spacji (tekst CJK — można łamać w dowolnym miejscu),
+    dokładnie w ``pos``.
+    """
+    lo = max(0, pos - window)
+    hi = min(len(text), pos + window + 1)
+    best: Tuple[int, int] | None = None      # (odległość, pozycja)
+    i = lo
+    while i < hi:
+        i = text.find(" ", i)
+        if i == -1 or i >= hi:
+            break
+        dist = abs(i - pos)
+        if best is None or dist < best[0]:
+            best = (dist, i)
+        i += 1
+    if best is not None:
+        return best[1], True
+    return pos, False
+
+
+def adapt_codes(source: str | None, target: str | None) -> str:
+    """Dopasowuje znaczniki ``\\n``/``\\l``/``\\p`` w tłumaczeniu do oryginału.
+
+    W plikach gier linia dialogu ma określoną szerokość, więc tłumaczenie
+    powinno przełamywać się w zbliżonych miejscach jak oryginał. Funkcja:
+
+    * nie rusza tłumaczenia, gdy struktura kodów już się zgadza,
+    * przenosi akapity (``\\p``) 1:1 — nadwyżkę dokleja do ostatniego,
+    * wiersze rozkłada proporcjonalnie do długości wierszy oryginału,
+      przełamując przy najbliższej spacji (w CJK — w miejscu proporcji),
+    * zachowuje wiodące/końcowe spacje tłumaczenia (wcięcie dialogu).
+
+    Wynik ma te same treść (bez kodów) co wejście, a inną — układ kodów.
+    """
+    if not source or not target or not target.strip():
+        return target or ""
+    if codes_structure_matches(source, target):
+        return target
+
+    src_paras = split_code_structure(source)
+    tgt_paras = split_code_structure(target)
+    tgt_flat = [_flatten_lines(par) for par in tgt_paras]
+
+    # Wyrównanie liczby akapitów.
+    aligned: List[str]
+    if len(tgt_flat) == len(src_paras):
+        aligned = tgt_flat
+    elif len(tgt_flat) > len(src_paras):
+        aligned = list(tgt_flat[:len(src_paras) - 1])
+        aligned.append(" ".join(t for t in tgt_flat[len(src_paras) - 1:] if t))
+    else:
+        # Mniej akapitów niż w oryginale — tekst zostaje w pierwszych
+        # akapitach, a brakujących \\p nie wymyślamy (zip pomieta resztę).
+        aligned = list(tgt_flat)
+
+    out_paras: List[str] = []
+    for src_par, text in zip(src_paras, aligned):
+        text = text.strip()
+        if not text:
+            out_paras.append("")
+            continue
+        if len(src_par) == 1:
+            out_paras.append(text)
+            continue
+
+        widths = [len(line) for line, _code in src_par]
+        total = sum(widths) or 1
+        window = max(2, len(text) // (2 * len(src_par)))
+        window = min(window, 12)
+
+        breaks: List[Tuple[int, bool]] = []
+        consumed = 0
+        for idx in range(1, len(src_par)):
+            wanted = round(len(text) * (consumed + widths[idx - 1]) / total)
+            pos, eats = _find_break(text, wanted, window)
+            if breaks and pos <= (breaks[-1][0] + (1 if breaks[-1][1] else 0)):
+                # Nie da się tu przełamać — cofnij się o jedno słowo.
+                nxt = text.find(" ", breaks[-1][0] + 1)
+                if nxt != -1:
+                    pos, eats = nxt, True
+                else:
+                    pos, eats = breaks[-1][0] + 1, False
+            breaks.append((pos, eats))
+            consumed += widths[idx - 1]
+
+        parts: List[str] = []
+        start = 0
+        for (line, code), (pos, eats) in zip(src_par[:-1], breaks):
+            parts.append(text[start:pos])
+            parts.append(code)
+            start = pos + 1 if eats else pos
+        parts.append(text[start:])
+        out_paras.append("".join(parts))
+
+    result = "\\p".join(out_paras)
+    lead, _core, trail = split_edges(target)
+    return f"{lead}{result}{trail}"

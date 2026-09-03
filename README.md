@@ -673,7 +673,7 @@ Zakładka *Ustawienia → **💾 Pamięć TM*** ma teraz jasne nazwy i komplet w
 
 | Grupa | Przełączniki |
 |---|---|
-| **🔍 Podpowiedzi z pamięci TM** | **włącz/wyłącz podpowiedzi** (nowe) • próg dopasowania • liczba wyników • zapis do TMX • dopasowywanie tagów • ukrywanie wpisów nieprzetłumaczonych |
+| **🔍 Podpowiedzi z pamięci TM** | **włącz/wyłącz podpowiedzi** (nowe) • próg dopasowania • liczba wyników • zapis do TMX • dopasowywanie tagów • **dopasowanie przełań (\n, \p) do oryginału** (nowe) • ukrywanie wpisów nieprzetłumaczonych |
 | **🔗 Dopasowanie zdań** | składanie z fragmentów • minimalne podobieństwo • wyłączenie przy dużej pamięci • szukanie w segmentach projektu • automatyczne wstawianie złożenia |
 | **✍️ Automatyczne wstawianie** | wstawianie do pustego segmentu • **nadpisywanie istniejącego tłumaczenia** (nowe) • **zapis zatwierdzonego segmentu do TM** (nowe) |
 | **⚡ Automatyka po wczytaniu plików** | uzupełnianie z TM • tłumaczenie maszynowe reszty • pytanie o zgodę |
@@ -721,6 +721,12 @@ Program rozpoznaje hiraganę, katakanę, hanzi (chiński i kanji), hangul oraz j
 interpunkcję i znaki pełnej szerokości. Znaczniki `\n`, `\p`, `\l` i teksty łacińskie
 nie są mylnie wykrywane.
 
+Reguła CJK jest **domyślnie włączona** i dostaje się automatycznie także do projektów
+utworzonych wcześniej (brakujące reguły wbudowane są doklejane przy otwarciu, bez
+dotykania reguł własnych) — więc tekst po japońsku/chińsku jest oznaczany jako
+pominięty od razu po wczytaniu plików, bez żadnej konfiguracji. W *Ustawienia →
+Wykluczenia* można ją obejrzeć i wyłączyć.
+
 ### Jak to działa
 
 | Element okna | Do czego służy |
@@ -737,6 +743,43 @@ klikniesz „Oznacz”. Operację można cofnąć (`Ctrl+Z`).
 
 Wzorzec CJK jest też dostępny jako **gotowa reguła wykluczania**
 (*Ustawienia → Wykluczenia*), gdy chcesz, żeby działał automatycznie przy każdym imporcie.
+
+## Dopasowanie znaczników do oryginału (\n, \l, \p)
+
+W plikach gier tłumaczenie ma się przełamywać w zbliżonych miejscach co oryginał,
+bo linia dialogu ma określoną szerokość. Do tej pory znaczniki `\n`/`\p` trzeba
+było przenosić ręcznie, a wpisy w TM często miały angielski z przełamaniami, a
+polskie tłumaczenie bez żadnego kodu.
+
+**Podpowiedzi TM** robią to teraz same (ustawienie *Ustawienia → Pamięć TM →
+„Dopasowuj przełamania (\n, \p) w podpowiedziach do oryginału”*, domyślnie
+włączone):
+
+```
+TM:  en  A strange seed was planted on its back at\n
+      birth. The plant sprouts and grows with\nthis POKéMON.
+      pl  Dziwne nasiono zostało zasadzone na jego plecach od
+          urodzenia. Roślina się rozwija i rośnie z tym Pokémonem.
+
+podpowiedź po dopasowaniu:
+      Dziwne nasiono zostało zasadzone na jego plecach\n
+      od urodzenia. Roślina się rozwija i rośnie z\n
+      tym Pokémonem.
+```
+
+* wiersze dostają `\n` w miejscach **proporcjonalnych** do długości wierszy
+  oryginału, zawsze na granicy wyrazów (w tekście CJK — dokładnie w miejscu
+  proporcji, bo chiński/japoński można łamać w dowolnym miejscu),
+* `\p` (akapity) przenoszone 1:1 — jeśli w tłumaczeniu jest mniej akapitów,
+  brakujących `\p` program **nie wymyśla**,
+* treść i wiodące/końcowe spacje (wcięcie dialogu) zostają nietknięte,
+* tłumaczenie, które ma już tę samą strukturę kodów, nie jest ruszane.
+
+Do segmentów, które już przetłumaczono, służy działanie w siatce: **klik
+prawy → „⇢ Dopasuj znaczniki do oryginału”** (działa na wszystkich
+zaznaczonych wierszach na raz, da się cofnąć `Ctrl+Z`). Z tego samego menu
+dostępne jest też **„🏷️ Oznacz pasujące do wzorca…”** — czyli okno z zakresami
+`TM01-TM66` i wzorcem CJK, bez szukania go w menu *Projekt*.
 
 ## Wykluczanie segmentów technicznych
 

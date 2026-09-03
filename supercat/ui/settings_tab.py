@@ -1269,6 +1269,17 @@ class SettingsTab(QTabWidget):
         self.adapt_tags.stateChanged.connect(lambda s: self.settings.set("tm.adapt.tags", bool(s)))
         form.addRow(self.adapt_tags)
 
+        self.adapt_codes = QCheckBox("Dopasowuj przełamania (\\n, \\p) w podpowiedziach do oryginału")
+        self.adapt_codes.setToolTip(
+            "Wpis w TM ma np. angielski z przełamaniami, a polskie tłumaczenie\n"
+            "bez znaczników. Gdy ta opcja jest włączona, program wstawia \\n i \\p\n"
+            "do podpowiedzi tak, aby linie miały zbliżoną szerokość co oryginał.\n\n"
+            "Możesz też dopasować ręcznie: klik prawym w siatce →\n"
+            "„⇢ Dopasuj znaczniki do oryginału” (działa na zaznaczonych wierszach).")
+        self.adapt_codes.setChecked(self.settings.get_bool("tm.adapt.codes", True))
+        self.adapt_codes.stateChanged.connect(lambda s: self.settings.set("tm.adapt.codes", bool(s)))
+        form.addRow(self.adapt_codes)
+
         self.filter_english = QCheckBox("Ukrywaj wpisy nieprzetłumaczone (tłumaczenie ≈ źródło)")
         self.filter_english.setToolTip(
             "Dotyczy PODPOWIEDZI: wpisy, gdzie tłumaczenie jest kopią źródła,\n"
