@@ -9,7 +9,9 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit, QVBoxLayout,
 )
 
-from ...core.exclusions import MATCH_TYPES, ExclusionRule
+from ...core.exclusions import (
+    MATCH_TYPES, RULE_ACTIONS, ExclusionRule,
+)
 
 
 class ExclusionDialog(QDialog):
@@ -18,7 +20,7 @@ class ExclusionDialog(QDialog):
     def __init__(self, rule: Optional[ExclusionRule] = None, parent=None,
                  files: Optional[Sequence[str]] = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Reguła wykluczania" if rule else "Nowa reguła wykluczania")
+        self.setWindowTitle("Reguła oznaczania segmentów" if rule else "Nowa reguła oznaczania segmentów")
         self.resize(620, 460)
         self.rule: Optional[ExclusionRule] = None
 
@@ -49,6 +51,20 @@ class ExclusionDialog(QDialog):
         self.case_sensitive = QCheckBox("Rozróżniaj wielkość liter")
         self.case_sensitive.stateChanged.connect(self._update_preview)
         form.addRow(self.case_sensitive)
+
+        self.action = QComboBox()
+        for key, label in RULE_ACTIONS.items():
+            self.action.addItem(label, key)
+        self.action.setCurrentIndex(0)
+        self.action.setToolTip(
+            "Co zrobić z dopasowanymi segmentami:\n"
+            "🚫 pominięte — nie tłumaczymy, nie liczymy w statystykach\n"
+            "★ przetłumaczone — uznajemy za gotowe (np. wzorce, które nie "
+            "wymagają tłumaczenia)\n\n"
+            "Dowolny wzorzec może mieć dowolne działanie — "
+            "np. CHEM* → przetłumaczone, a \\#org → pominięte.")
+        self.action.currentIndexChanged.connect(self._update_preview)
+        form.addRow("Działanie po dopasowaniu:", self.action)
 
         self.enabled = QCheckBox("Reguła włączona")
         self.enabled.setChecked(True)
@@ -100,6 +116,8 @@ class ExclusionDialog(QDialog):
             self.comment.setText(rule.comment)
             self.case_sensitive.setChecked(rule.case_sensitive)
             self.enabled.setChecked(rule.enabled)
+            action_index = self.action.findData(rule.action)
+            self.action.setCurrentIndex(action_index if action_index >= 0 else 0)
             file_index = self.file_filter.findData(rule.file_filter)
             if file_index >= 0:
                 self.file_filter.setCurrentIndex(file_index)
@@ -114,6 +132,7 @@ class ExclusionDialog(QDialog):
             case_sensitive=self.case_sensitive.isChecked(),
             comment=self.comment.text().strip(),
             file_filter=self.file_filter.currentData() or "",
+            action=self.action.currentData() or "skip",
         )
 
     def _update_preview(self) -> None:
@@ -133,13 +152,15 @@ class ExclusionDialog(QDialog):
         for line in lines:
             (matched if rule.matches(line) else kept).append(line)
 
+        header = ("🚫 POMINIĘTE:" if rule.action == "skip"
+                  else "★ PRZEZŁUMACZONE:")
         report = []
         if matched:
-            report.append("🚫 WYKLUCZONE:")
+            report.append(header)
             report += [f"    {l}" for l in matched]
         if kept:
             report.append("")
-            report.append("✅ DO TŁUMACZENIA:")
+            report.append("✅ BEZ ZMIAN (do tłumaczenia):")
             report += [f"    {l}" for l in kept]
         self.preview.setPlainText("\n".join(report))
 

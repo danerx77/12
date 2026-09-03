@@ -838,8 +838,9 @@ class MainWindow(QMainWindow):
             self.project.file_order = [f for f in files]
         self.project_manager.save_project()
 
-        # Wyklucz wiersze techniczne (np. „<<< FILE: … >>>”) zanim trafią do
-        # tłumaczenia i statystyk – reguły są zapisane w projekcie.
+        # Oznacz automatycznie segmenty pasujące do reguł (wiersze
+        # techniczne → pominięte; np. CHEM* → przetłumaczone) – reguły są
+        # zapisane w projekcie.
         excluded = 0
         rules = self.exclusion_set()
         if rules.enabled and rules.active_rules:
@@ -849,7 +850,11 @@ class MainWindow(QMainWindow):
         self.qa_tab.refresh_stats()
         msg = f"Wczytano {len(segments)} segmentów z {len(files)} plików"
         if excluded:
-            msg += f"  •  wykluczono {excluded} wierszy technicznych"
+            only_skip = all(r.action == "skip" for r in rules.active_rules)
+            if only_skip:
+                msg += f"  •  wykluczono {excluded} wierszy technicznych"
+            else:
+                msg += f"  •  oznaczono wg reguł {excluded} segmentów"
         if errors:
             msg += f" (błędy: {len(errors)})"
             QMessageBox.warning(self, "Import", "Nie udało się wczytać niektórych plików:\n\n" + "\n".join(errors))
@@ -1479,7 +1484,7 @@ class MainWindow(QMainWindow):
         self.qa_tab.refresh_stats()
         if not silent:
             self.show_status(
-                f"🚫 Wykluczono {excluded} segmentów, przywrócono {restored}")
+                f"Zastosowano reguły: oznaczono {excluded}, przywrócono {restored}")
         return excluded
 
     def go_to_editor_segment(self, index: int) -> None:

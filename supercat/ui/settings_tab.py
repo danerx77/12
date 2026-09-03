@@ -416,23 +416,29 @@ class SettingsTab(QTabWidget):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        header = QGroupBox("🚫 Wykluczanie segmentów technicznych")
+        header = QGroupBox("🚫 Wykluczanie i automatyczne oznaczanie segmentów")
         hform = QVBoxLayout(header)
-        self.excl_enabled = QCheckBox("Włącz wykluczanie segmentów")
+        self.excl_enabled = QCheckBox("Włącz automatyczne oznaczanie segmentów")
         self.excl_enabled.setToolTip(
-            "Segmenty pasujące do reguł są oznaczane jako pominięte:\n"
-            "nie trafiają do tłumaczenia maszynowego, do pamięci TM ani do\n"
-            "statystyk „pozostało do zrobienia”. Treść zostaje nietknięta\n"
-            "i wraca do pliku przy eksporcie."
+            "Segmenty pasujące do reguł są oznaczane zgodnie z działaniem\n"
+            "reguły:\n"
+            "  🚫 pominięte — nie trafiają do tłumaczenia maszynowego, do\n"
+            "     pamięci TM ani do statystyk „pozostało do zrobienia”\n"
+            "  ★ przetłumaczone — uznawane za gotowe (np. wzorce CHEM*,\n"
+            "     które nie wymagają tłumaczenia)\n\n"
+            "Treść zawsze zostaje nietknięta i wraca do pliku przy eksporcie."
         )
         self.excl_enabled.stateChanged.connect(self._toggle_exclusions)
         hform.addWidget(self.excl_enabled)
 
         info = QLabel(
-            "Przykład z plików gier: <code>&lt;&lt;&lt; FILE: CeladonCity/text.inc &gt;&gt;&gt;</code> "
-            "to wiersz techniczny, nie tekst do tłumaczenia. Reguła "
-            "<code>&lt;&lt;&lt; FILE:*&gt;&gt;&gt;</code> obejmie wszystkie takie wiersze, "
-            "niezależnie od nazwy pliku w środku."
+            "Reguły są <b>uniwersalne</b>: dowolny wzorzec (tekst, gwiazdka, zakres "
+            "typu <code>TM01-TM66</code>, regex) i dowolne działanie — <b>pominięte</b> albo "
+            "<b>przetłumaczone</b>. Przykład z plików gier: "
+            "<code>&lt;&lt;&lt; FILE: CeladonCity/text.inc &gt;&gt;&gt;</code> to wiersz techniczny "
+            "→ reguła <code>&lt;&lt;&lt; FILE:*&gt;&gt;&gt;</code> (działanie: pominięte). "
+            "Inny przykład: <code>CHEM*</code> (działanie: przetłumaczone) oznacza wszystkie "
+            "wzory chemiczne jako gotowe."
         )
         info.setWordWrap(True)
         info.setTextFormat(Qt.TextFormat.RichText)
@@ -444,16 +450,17 @@ class SettingsTab(QTabWidget):
         self.excl_group = QGroupBox("Reguły")
         rules_layout = QVBoxLayout(self.excl_group)
 
-        self.excl_table = QTableWidget(0, 5)
+        self.excl_table = QTableWidget(0, 6)
         self.excl_table.setHorizontalHeaderLabels(
-            ["✓", "Wzorzec", "Dopasowanie", "Trafienia", "Opis"])
+            ["✓", "Wzorzec", "Dopasowanie", "Działanie", "Trafienia", "Opis"])
         self.excl_table.horizontalHeader().setSectionResizeMode(
             1, QHeaderView.ResizeMode.Stretch)
         self.excl_table.horizontalHeader().setSectionResizeMode(
-            4, QHeaderView.ResizeMode.Stretch)
+            5, QHeaderView.ResizeMode.Stretch)
         self.excl_table.setColumnWidth(0, 34)
-        self.excl_table.setColumnWidth(2, 190)
-        self.excl_table.setColumnWidth(3, 80)
+        self.excl_table.setColumnWidth(2, 150)
+        self.excl_table.setColumnWidth(3, 140)
+        self.excl_table.setColumnWidth(4, 80)
         self.excl_table.verticalHeader().setVisible(False)
         self.excl_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.excl_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -496,8 +503,8 @@ class SettingsTab(QTabWidget):
         refresh_btn.clicked.connect(self._refresh_exclusions_preview)
         apply_btn = QPushButton("✅ Zastosuj do projektu")
         apply_btn.setToolTip(
-            "Oznacza pasujące segmenty jako pominięte (i przywraca te, "
-            "które przestały pasować)")
+            "Oznacza pasujące segmenty zgodnie z działaniem każdej reguły "
+            "(pominięte lub przetłumaczone) i przywraca te, które przestały pasować")
         apply_btn.clicked.connect(self._apply_exclusions)
         restore_btn = QPushButton("↩️ Przywróć wszystkie pominięte")
         restore_btn.setToolTip(
@@ -537,7 +544,7 @@ class SettingsTab(QTabWidget):
         self._refresh_exclusions_preview()
 
     def _fill_exclusions_table(self) -> None:
-        from ..core.exclusions import MATCH_TYPES
+        from ..core.exclusions import MATCH_TYPES, RULE_ACTIONS
 
         rules = self._exclusions()
         counts = {}
@@ -563,12 +570,20 @@ class SettingsTab(QTabWidget):
             self.excl_table.setItem(
                 row, 2, QTableWidgetItem(MATCH_TYPES.get(rule.match_type, rule.match_type)))
 
+            action_item = QTableWidgetItem(
+                RULE_ACTIONS.get(rule.action, rule.action))
+            if rule.action == "translated":
+                action_item.setForeground(QColor("#66bb6a"))
+            else:
+                action_item.setForeground(QColor("#ef5350"))
+            self.excl_table.setItem(row, 3, action_item)
+
             hits = QTableWidgetItem(str(counts.get(rule.pattern, 0)) if segments else "—")
             hits.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.excl_table.setItem(row, 3, hits)
+            self.excl_table.setItem(row, 4, hits)
 
             note = rule.comment + (f"  (tylko {rule.file_filter})" if rule.file_filter else "")
-            self.excl_table.setItem(row, 4, QTableWidgetItem(note))
+            self.excl_table.setItem(row, 5, QTableWidgetItem(note))
         self.excl_table.blockSignals(False)
 
     def _on_excl_item_changed(self, item) -> None:

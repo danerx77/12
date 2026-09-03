@@ -2622,7 +2622,7 @@ Dziękujemy za korzystanie z MYSTERY"""
     from supercat.ui.dialogs.exclusion_dialog import ExclusionDialog
     dialog = ExclusionDialog(ExclusionRule("<<< FILE:*>>>", "wildcard"), w, ["a.txt"])
     check("okno reguły pokazuje podgląd dopasowania",
-          "WYKLUCZONE" in dialog.preview.toPlainText(),
+          "POMINIĘTE" in dialog.preview.toPlainText(),
           dialog.preview.toPlainText()[:40])
     check("okno reguły liczy trafienia w przykładach",
           "Pasuje" in dialog.status.text(), dialog.status.text())
@@ -3819,6 +3819,183 @@ Dziękujemy za korzystanie z MYSTERY"""
     check("stary projekt dostaje wszystkie reguły wbudowane",
           all(any(r.pattern == b.pattern for r in merged.rules)
               for _n, b in BUILTIN_PRESETS))
+
+    # --- uniwersalne reguły: działanie (pominięte / przetłumaczone) ---
+    print("\n24e. Uniwersalne reguły: działanie reguły (pominięte / przetłumaczone)")
+    from supercat.core.exclusions import ExclusionRule as _ER, ExclusionSet as _ES
+    from supercat.core.fileparser import Segment as _Seg
+
+    def _mkseg(text, status="new", ignored=False):
+        return _Seg(seg_id=f"s{text}", source=text, status=status, ignored=ignored)
+
+    # 1) DOWOLNY wzorzec (CHEM*) → przetłumaczone, a nie pominięte
+    chem_rule = _ER("CHEM*", "wildcard", True, False, "substancje chemiczne",
+                    action="translated")
+    chem_set = _ES([chem_rule])
+    chem_segs = [_mkseg("CHEM-123 odczynnik"), _mkseg("Hello world")]
+    marked, restored = chem_set.apply(chem_segs)
+    check("CHEM* oznacza PRZEZŁUMACZONE (nie pominięte)",
+          chem_segs[0].status == "translated" and not chem_segs[0].ignored,
+          f"status={chem_segs[0].status} ignored={chem_segs[0].ignored}")
+    check("CHEM*: segment niepasujący nietknięty",
+          chem_segs[1].status == "new" and not chem_segs[1].ignored)
+    check("CHEM*: liczniki poprawne", marked == 1 and restored == 0, f"{marked},{restored}")
+    m2, r2 = chem_set.apply(chem_segs)
+    check("CHEM*: idempotentne przy ponownym zastosowaniu", (m2, r2) == (0, 0), f"{m2},{r2}")
+
+    # 2) Wyłączenie reguły → status wraca do wcześniejszego
+    chem_rule.enabled = False
+    chem_set.apply(chem_segs)
+    check("CHEM*: wyłączenie reguły przywraca status",
+          chem_segs[0].status == "new"
+          and not chem_segs[0].extra.get("auto_translated"), chem_segs[0].status)
+    chem_rule.enabled = True
+
+    # 3) Domyślne działanie (stare projekty) to nadal „pominięte”
+    skip_rule = _ER("<<< FILE:*>>>", "wildcard")
+    skip_set = _ES([skip_rule])
+    skip_segs = [_mkseg("<<< FILE: x.inc >>>")]
+    skip_set.apply(skip_segs)
+    check("domyślne: reguła oznacza pominięte",
+          skip_segs[0].ignored and skip_segs[0].status == "new")
+
+    # 4) Zmiana działania tej samej reguły — w obie strony
+    flip_rule = _ER("CHEM*", "wildcard")
+    flip_set = _ES([flip_rule])
+    flip_segs = [_mkseg("CHEM-9")]
+    flip_set.apply(flip_segs)
+    check("przełącznik: najpierw pominięte", flip_segs[0].ignored)
+    flip_rule.action = "translated"
+    flip_set.apply(flip_segs)
+    check("przełącznik: pominięte → przetłumaczone",
+          flip_segs[0].status == "translated" and not flip_segs[0].ignored,
+          f"status={flip_segs[0].status} ignored={flip_segs[0].ignored}")
+    flip_rule.action = "skip"
+    flip_set.apply(flip_segs)
+    check("przełącznik: przetłumaczone → pominięte (status wraca)",
+          flip_segs[0].ignored and flip_segs[0].status == "new",
+          f"status={flip_segs[0].status}")
+
+    # 5) Ręczne decyzje mają pierwszeństwo
+    keep_seg = _mkseg("CHEM-K")
+    keep_seg.extra["manual_keep"] = True
+    all_set = _ES([_ER("*", "wildcard", action="translated")])
+    all_set.apply([keep_seg])
+    check("manual_keep chroni przed automatycznym oznaczeniem", keep_seg.status == "new")
+    mskip_seg = _mkseg("CHEM-S", ignored=True)
+    mskip_seg.extra["manual_skip"] = True
+    all_set.apply([mskip_seg])
+    check("manual_skip ma pierwszeństwo przed „przetłumaczone”",
+          mskip_seg.ignored and mskip_seg.status == "new")
+
+    # 6) Uniwersalność: zakresy, regex, rozróżnianie liter
+    uni_set = _ES([
+        _ER("MOJ1-MOJ3", "range", action="translated"),
+        _ER(r"^[A-Z]{4,}$", "regex", case_sensitive=True, action="translated"),
+    ])
+    uni_segs = [_mkseg("MOJ1"), _mkseg("MOJ3"), _mkseg("MOJ4"),
+                _mkseg("POKEMON"), _mkseg("mixed")]
+    uni_set.apply(uni_segs)
+    check("uniwersalnie: zakres i regex działają z dowolnymi tekstami",
+          [s.status == "translated" for s in uni_segs] == [True, True, False, True, False],
+          [s.status for s in uni_segs])
+
+    # 7) Kilka reguł pasuje → wygrywa pierwsza
+    first_set = _ES([_ER("*", "wildcard", action="translated"), _ER("*", "wildcard")])
+    first_seg = _mkseg("cokolwiek")
+    first_set.apply([first_seg])
+    check("wiele reguł: pierwsza wygrywa",
+          first_seg.status == "translated" and not first_seg.ignored)
+
+    # 8) Serializacja: action przeżywa zapis; stare reguły → skip
+    d = chem_rule.to_dict()
+    check("to_dict przechowuje działanie", d.get("action") == "translated")
+    check("stara reguła (bez pola action) → pominięte",
+          _ER.from_dict({"pattern": "X"}).action == "skip")
+    check("błędne action → pominięte (bezpiecznie)",
+          _ER.from_dict({"pattern": "X", "action": "cos-innego"}).action == "skip")
+    check("round-trip action", _ER.from_dict(d).action == "translated")
+    check("opis reguły pokazuje działanie",
+          "przetłumaczone" in chem_rule.describe()
+          and "pominięte" in skip_rule.describe())
+
+    # 9) Tabela reguł w Ustawieniach ma kolumnę „Działanie”
+    st = w.settings_tab
+    headers = [st.excl_table.horizontalHeaderItem(c).text()
+               for c in range(st.excl_table.columnCount())]
+    check("tabela reguł: kolumna „Działanie”",
+          "Działanie" in headers and st.excl_table.columnCount() == 6, str(headers))
+    prev_excl = w._exclusions
+    w._exclusions = _ES([chem_rule, skip_rule])
+    st.load_exclusions()
+    a0 = st.excl_table.item(0, 3).text()
+    a1 = st.excl_table.item(1, 3).text()
+    w._exclusions = prev_excl
+    st.load_exclusions()
+    check("tabela reguł: pokazuje działanie każdej reguły",
+          "przetłumaczone" in a0 and "pominięte" in a1, f"{a0} | {a1}")
+
+    # 10) Okno reguły: pole „Działanie”
+    dlg = ExclusionDialog(_ER("CHEM*", "wildcard", action="translated"), w, ["a.txt"])
+    check("okno reguły: ma pole Działanie", hasattr(dlg, "action"))
+    check("okno reguły: wczytuje istniejące działanie",
+          dlg.action.currentData() == "translated")
+    dlg.action.setCurrentIndex(0)
+    check("okno reguły: zmiana na pominięte", dlg._current_rule().action == "skip")
+    dlg.action.setCurrentIndex(1)
+    check("okno reguły: zmiana na przetłumaczone", dlg._current_rule().action == "translated")
+
+    # 11) End-to-end: projekt z regułą CHEM* → oznaczenie przy wczytywaniu
+    ch_dir = os.path.join(tmp, "chemproj")
+    os.makedirs(ch_dir, exist_ok=True)
+    ch_pm = ProjectManager()
+    chp = ch_pm.create_project("Chem", "en", "pl", ch_dir)
+    with open(os.path.join(chp.source_path, "c.txt"), "w", encoding="utf-8") as fh:
+        fh.write("CHEM-001 odczynnik\nHello there friend.")
+    chp.exclusions = _ES([
+        _ER("CHEM*", "wildcard", True, False, "substancje chemiczne",
+            action="translated"),
+    ]).to_dict()
+    ch_pm.save_project()
+    cw2 = MainWindow()
+    cw2.open_project_path(chp.project_file_path)
+    cw2.load_source_files(auto=True)
+    csegs = cw2.editor_tab.segments
+    check("projekt: CHEM* oznaczone przetłumaczone przy wczytaniu",
+          len(csegs) == 2 and csegs[0].status == "translated" and not csegs[0].ignored,
+          [(s.source, s.status, s.ignored) for s in csegs])
+    check("projekt: zwykły segment nietknięty",
+          csegs[1].status == "new" and not csegs[1].ignored)
+
+    # --- uniwersalność dopasowania kodów (nie tylko przykładowe pary) ---
+    en_l = r"Linia pierwsza jest długa\lale druga\lznowu krótka"
+    pl_l = "Pierwszy wiersz długi a drugi krótki znowu"
+    ad_l = adapt_codes(en_l, pl_l)
+    check("kody uniwersalnie: działa na \l", ad_l.count("\\l") == 2, repr(ad_l))
+    check("kody uniwersalnie: treść z \l nietknięta",
+          _flatten_lines(split_code_structure(ad_l)[0]) == pl_l, repr(ad_l))
+
+    en_p = r"Para jeden\pPara drugi\pPara trzeci"
+    pl_p = "Pierwszy akapit drugi akapit i trzeci akapit"
+    ad_p = adapt_codes(en_p, pl_p)
+    check("kody uniwersalnie: cel bez \p nie dostaje wymyślonych \p",
+          ad_p.count("\\p") == 0, repr(ad_p))
+    check("kody uniwersalnie: treść akapitów nietknięta",
+          _flatten_lines(split_code_structure(ad_p)[0]) == pl_p, repr(ad_p))
+    pl_p2 = "Pierwszy akapit\pDrugi akapit i trzeci"
+    ad_p2 = adapt_codes(en_p, pl_p2)
+    check("kody uniwersalnie: istniejące \p w celu zostają na miejscu",
+          ad_p2.count("\\p") == 1 and "akapit\pDrugi" in ad_p2, repr(ad_p2))
+
+    ad_none = adapt_codes("Plain source without any codes", pl1)
+    check("kody uniwersalnie: źródło bez kodów → cel nietknięty",
+          ad_none == pl1, repr(ad_none))
+
+    ad_short = adapt_codes(en1, "Krótka odpowiedź.")
+    check("kody uniwersalnie: krótki cel nie dostaje męty (max 1 kod)",
+          ad_short.count("\\n") <= 1
+          and _flatten_lines(split_code_structure(ad_short)[0]) == "Krótka odpowiedź.",
+          repr(ad_short))
 
     # ---------------------------- Nawigacja klawiszami
     print("\n24b. Strzałki i zaznaczanie w siatce")

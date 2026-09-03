@@ -32,6 +32,17 @@ MATCH_TYPES = {
 
 DEFAULT_MATCH = "wildcard"
 
+#: Działania, jakie reguła może wykonać na dopasowanym segmencie.
+#: System jest uniwersalny — to, co pasuje do wzorca, może zostać
+#: oznaczone jako pominięte (domyślnie) ALBO jako przetłumaczone,
+#: a reguły mogą opisywać DOWOLNE teksty (wzorce w przykładach
+#: są tylko przykładowe).
+RULE_ACTIONS = {
+    "skip": "🚫 pominięte",
+    "translated": "★ przetłumaczone",
+}
+DEFAULT_ACTION = "skip"
+
 
 @dataclass
 class ExclusionRule:
@@ -45,6 +56,10 @@ class ExclusionRule:
     comment: str = ""
     #: Nazwa pliku, którego reguła dotyczy (pusta = wszystkie pliki).
     file_filter: str = ""
+    #: Działanie po dopasowaniu: "skip" (pominięte) lub "translated"
+    #: (przetłumaczone). Reguły zapisane w starszych wersjach projektu
+    #: nie mają tego pola — traktujemy je jako "skip", więc nic się nie zmienia.
+    action: str = DEFAULT_ACTION
 
     def to_dict(self) -> dict:
         return {
@@ -54,10 +69,14 @@ class ExclusionRule:
             "case_sensitive": self.case_sensitive,
             "comment": self.comment,
             "file_filter": self.file_filter,
+            "action": self.action,
         }
 
     @staticmethod
     def from_dict(data: dict) -> "ExclusionRule":
+        action = data.get("action", DEFAULT_ACTION)
+        if action not in RULE_ACTIONS:
+            action = DEFAULT_ACTION
         return ExclusionRule(
             pattern=data.get("pattern", ""),
             match_type=data.get("match_type", DEFAULT_MATCH),
@@ -65,6 +84,7 @@ class ExclusionRule:
             case_sensitive=bool(data.get("case_sensitive", False)),
             comment=data.get("comment", ""),
             file_filter=data.get("file_filter", ""),
+            action=action,
         )
 
     def describe(self) -> str:
@@ -76,6 +96,7 @@ class ExclusionRule:
                 out += f"  ({count} pozycji)"
         if self.file_filter:
             out += f"  (tylko {self.file_filter})"
+        out += f"  → {RULE_ACTIONS.get(self.action, self.action)}"
         if self.comment:
             out += f"  — {self.comment}"
         return out
@@ -283,44 +304,88 @@ class ExclusionSet:
         return self.matching_rule(text, file_name) is not None
 
     def apply(self, segments: Iterable, mark_ignored: bool = True) -> Tuple[int, int]:
-        """Oznacza pasujące segmenty jako pominięte.
+        """Oznacza pasujące segmenty zgodnie z działaniem reguły.
 
-        Zwraca (nowo wykluczone, przywrócone). Decyzje użytkownika mają
+        Każda reguła ma pole ``action``:
+
+        * ``"skip"`` – dopasowany segment jest oznaczany jako **pominięty**
+          (``ignored``) — domyślne zachowanie starszych wersji,
+        * ``"translated"`` – dopasowany segment dostaje status
+          **przetłumaczony** (np. wzorce, które nie wymagają tłumaczenia,
+          ale które są „gotowe”: ``CHEM*``, skróty, nazwy własne itd.).
+
+        Działa to w obie strony: gdy segment przestaje pasować (reguła
+        wyłączona, usunięta albo zmienione wzorca), program cofa **własne**
+        oznaczenie — pominięcie znika, a status wraca do wcześniejszego.
+
+        Zwraca (nowo oznaczone, przywrócone). Decyzje użytkownika mają
         pierwszeństwo przed regułami i działają w OBIE strony:
 
         * ``manual_skip`` – segment pominięty ręcznie zostaje pominięty,
         * ``manual_keep`` – segment ręcznie przywrócony **nie zostanie ponownie
-          wykluczony**, nawet jeśli pasuje do reguły.
+          oznaczony**, nawet jeśli pasuje do reguły.
 
-        Bez tej drugiej flagi cofnięcie wykluczenia znikałoby przy każdym
-        ponownym wczytaniu plików.
+        Gdy segment pasuje do kilku reguł, liczy się **pierwsza** z listy.
         """
-        excluded = restored = 0
+        marked = restored = 0
         for seg in segments:
             source = getattr(seg, "source", "") or ""
             name = getattr(seg, "file_name", "") or ""
             extra = getattr(seg, "extra", None)
-            extra = extra if isinstance(extra, dict) else {}
+            if not isinstance(extra, dict):
+                extra = {}
             if extra.get("manual_keep"):
                 continue            # użytkownik świadomie przywrócił ten segment
 
-            should = self.is_excluded(source, name)
-            was = bool(getattr(seg, "ignored", False))
-            auto = bool(extra.get("auto_excluded"))
+            rule = self.matching_rule(source, name)
+            was_ignored = bool(getattr(seg, "ignored", False))
+            auto_ignored = bool(extra.get("auto_excluded"))
+            auto_translated = bool(extra.get("auto_translated"))
 
-            if should and not was:
+            if rule is None:
+                # Reguła przestała pasować – cofamy tylko to, co oznaczyliśmy
+                # sami, nie ruszając ręcznych decyzji użytkownika.
+                if was_ignored and auto_ignored and mark_ignored:
+                    seg.ignored = False
+                    extra.pop("auto_excluded", None)
+                    restored += 1
+                if auto_translated and mark_ignored:
+                    prev = extra.pop("auto_translated_status", "new")
+                    extra.pop("auto_translated", None)
+                    seg.status = prev if prev in ("new", "draft", "translated", "approved") else "new"
+                    restored += 1
+                continue
+
+            if rule.action == "translated":
+                # Ręczne pominięcie ma pierwszeństwo przed „przetłumaczone”.
+                if extra.get("manual_skip") or (was_ignored and not auto_ignored):
+                    continue
+                if auto_translated:
+                    continue        # już oznaczony przez te same reguły
+                if was_ignored and auto_ignored:
+                    # reguła mówi teraz „przetłumaczone”, a nie „pominięte”
+                    seg.ignored = False
+                    extra.pop("auto_excluded", None)
+                if seg.status != "translated":
+                    if mark_ignored:
+                        extra["auto_translated_status"] = seg.status
+                        extra["auto_translated"] = True
+                        seg.status = "translated"
+                        marked += 1
+            else:  # skip — historyczne zachowanie
+                if auto_translated:
+                    # reguła mówi teraz „pominięte”, a nie „przetłumaczone”
+                    prev = extra.pop("auto_translated_status", "new")
+                    extra.pop("auto_translated", None)
+                    if seg.status == "translated":
+                        seg.status = prev if prev in ("new", "draft", "translated", "approved") else "new"
+                if was_ignored:
+                    continue        # już pominięte (ręcznie albo automatycznie)
                 if mark_ignored:
                     seg.ignored = True
-                    if isinstance(getattr(seg, "extra", None), dict):
-                        seg.extra["auto_excluded"] = True
-                    excluded += 1
-            elif not should and was and auto:
-                # Reguła przestała pasować – przywracamy tylko to, co sami
-                # wykluczyliśmy, nie ruszając ręcznych decyzji użytkownika.
-                seg.ignored = False
-                seg.extra.pop("auto_excluded", None)
-                restored += 1
-        return excluded, restored
+                    extra["auto_excluded"] = True
+                    marked += 1
+        return marked, restored
 
     @staticmethod
     def clear_manual_decisions(segments: Iterable) -> int:

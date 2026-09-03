@@ -791,12 +791,19 @@ W plikach gier obok tekstu do tłumaczenia stoją wiersze techniczne:
 [POKEMON_NAME]
 ```
 
-Zakładka *Ustawienia → **🚫 Wykluczenia*** pozwala je odsiać. Segmenty pasujące do reguł
-są oznaczane jako **pominięte** — nie trafiają do tłumaczenia maszynowego, do pamięci TM
-ani do statystyk „pozostało do zrobienia”. **Treść zostaje nietknięta** i wraca do pliku
-przy eksporcie.
+Zakładka *Ustawienia → **🚫 Wykluczenia*** pozwala je odsiać. System jest
+**uniwersalny** — wzorce są tylko przykładami, a każdą regułę możesz dopasować do swoich
+plików (dowolny tekst, gwiazdka, zakres, regex). Segmenty pasujące do reguł są
+oznaczane zgodnie z jej **działaniem**:
 
-**Reguła składa się z wzorca i sposobu dopasowania:**
+| Działanie | Efekt |
+|---|---|
+| **🚫 pominięte** (domyślne) | segment nie trafia do tłumaczenia maszynowego, do pamięci TM ani do statystyk „pozostało do zrobienia” |
+| **★ przetłumaczone** | segment uznawany za gotowy — do statystyk „połowicznie/ukończone”, nie do tłumaczenia (np. wzorce `CHEM*`, które zostają bez zmian, ale są „przetłumaczone”) |
+
+**Treść zostaje nietknięta** i wraca do pliku przy eksporcie.
+
+**Reguła składa się z wzorca, sposobu dopasowania i działania:**
 
 | Sposób | Przykład | Znaczy |
 |---|---|---|
@@ -806,11 +813,17 @@ przy eksporcie.
 | kończy się na | `>>>` | tylko na końcu |
 | jest dokładnie równy | `{STR_VAR_1}` | cały segment |
 | wyrażenie regularne | `^\s*#\w+` | pełna kontrola |
+| zakres numerowany | `TM01-TM66` | TM01 … TM66 jedną regułą |
 
 Każdą regułę można **włączyć lub wyłączyć osobno** (kratka „✓”), ograniczyć do wybranego
-pliku, opisać komentarzem i ustawić rozróżnianie wielkości liter. Tabela pokazuje **liczbę
-trafień** dla każdej reguły, a panel poniżej — **listę segmentów**, które zostaną wykluczone,
-zanim cokolwiek zatwierdzisz.
+pliku, opisać komentarzem, ustawić rozróżnianie wielkości liter i **wybrać działanie**
+(pominięte / przetłumaczone). Tabela pokazuje **liczbę trafień** dla każdej reguły, a panel
+poniżej — **listę segmentów**, które zostaną oznaczone, zanim cokolwiek zatwierdzisz.
+
+Przykład uniwersalnego zastosowania: wzorce chemiczne w pliku `CHEM-001`, `CHEM-002`…
+nie wymagają tłumaczenia, ale są elementem ukończonym — reguła `CHEM*` (działanie:
+**przetłumaczone**) oznacza je wszystkie za jednym zamachem. Na odwrót: `#org` (działanie:
+**pominięte**) nie liczy się ani w tłumaczeniu, ani w statystykach.
 
 **📋 Gotowe wzorce…** dodają reguły typowe dla plików gier: nagłówki `<<< FILE: … >>>`,
 znaczniki `<<< … >>>`, dyrektywy `#org`, segmenty będące samą zmienną `{STR_VAR_1}`,
@@ -818,7 +831,9 @@ etykiety `[NAZWA]`, ścieżki plików, segmenty bez ani jednej litery.
 
 Reguły zapisują się w pliku projektu i działają **automatycznie przy wczytywaniu plików**.
 Okno edycji sprawdza wzorzec **na żywo** na przykładowych wierszach, pokazując osobno
-„🚫 WYKLUCZONE” i „✅ DO TŁUMACZENIA”; błędne wyrażenie regularne blokuje zapis.
+„🚫 POMINIĘTE” (lub „★ PRZEZŁUMACZONE”, zależnie od działania) i „✅ BEZ ZMIAN”;
+błędne wyrażenie regularne blokuje zapis. Gdy segment pasuje do kilku reguł,
+liczy się **pierwsza** z listy — kolejność w tabeli ma znaczenie.
 
 ### Cofanie wykluczeń — działa w obie strony
 

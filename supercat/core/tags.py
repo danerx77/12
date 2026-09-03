@@ -147,6 +147,12 @@ _BREAK_RE = re.compile(r"\\[pPnNlL]")
 #: szerokości spacja CJK).
 _BREAKABLE_AFTER = (" ", "\u3000")
 
+#: Szybkie rozpoznanie tekstu CJK (japoński, chiński, koreański) — po
+#: takich znakach wiersz można łamać w dowolnym miejscu, więc minimalna
+#: odległość między przełamaniemiami jest mniejsza niż w tekście łacińskim.
+_CJK_DETECT_RE = re.compile(
+    "[\u3000-\u30ff\u3400-\u9fff\uf900-\ufaff\uff66-\uff9f\uac00-\ud7af]")
+
 
 def split_code_structure(text: str | None) -> List[List[Tuple[str, str]]]:
     """Rozbija tekst na akapity (``\\p``) i wiersze (``\\n`` / ``\\l``).
@@ -274,25 +280,28 @@ def adapt_codes(source: str | None, target: str | None) -> str:
         total = sum(widths) or 1
         window = max(2, len(text) // (2 * len(src_par)))
         window = min(window, 12)
+        cjk_text = bool(_CJK_DETECT_RE.search(text))
+        min_gap = 3 if cjk_text else 4
+        tail_min = 2 if cjk_text else 3
 
-        breaks: List[Tuple[int, bool]] = []
+        breaks: List[Tuple[int, bool, str]] = []     # (pozycja, zjada spację, kod)
         consumed = 0
         for idx in range(1, len(src_par)):
             wanted = round(len(text) * (consumed + widths[idx - 1]) / total)
             pos, eats = _find_break(text, wanted, window)
-            if breaks and pos <= (breaks[-1][0] + (1 if breaks[-1][1] else 0)):
-                # Nie da się tu przełamać — cofnij się o jedno słowo.
-                nxt = text.find(" ", breaks[-1][0] + 1)
-                if nxt != -1:
-                    pos, eats = nxt, True
-                else:
-                    pos, eats = breaks[-1][0] + 1, False
-            breaks.append((pos, eats))
+            code = src_par[idx - 1][1]
             consumed += widths[idx - 1]
+            if breaks:
+                last_end = breaks[-1][0] + (1 if breaks[-1][1] else 0)
+                if pos - last_end < min_gap:
+                    continue        # wiersz byłby zbyt krótki — kod odpada
+            if len(text) - (pos + (1 if eats else 0)) < tail_min:
+                continue            # po przełamaniu zostałby ułamek wiersza
+            breaks.append((pos, eats, code))
 
         parts: List[str] = []
         start = 0
-        for (line, code), (pos, eats) in zip(src_par[:-1], breaks):
+        for (pos, eats, code) in breaks:
             parts.append(text[start:pos])
             parts.append(code)
             start = pos + 1 if eats else pos
