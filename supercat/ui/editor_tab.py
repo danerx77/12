@@ -2433,7 +2433,16 @@ class EditorTab(QWidget):
             seg = self.segments[index]
             if seg.ignored or not (seg.target or "").strip():
                 continue
-            new_text = adapt_codes(seg.source, seg.target)
+            from ..core.tags import (DEFAULT_LINE_BREAKS, DEFAULT_PARA_BREAKS,
+                                     parse_break_codes)
+            _sm_codes = SettingsManager.instance()
+            _line = parse_break_codes(
+                _sm_codes.get_str("tm.adapt.line.codes", "\\n \\l"),
+                DEFAULT_LINE_BREAKS)
+            _para = parse_break_codes(
+                _sm_codes.get_str("tm.adapt.para.codes", "\\p"),
+                DEFAULT_PARA_BREAKS)
+            new_text = adapt_codes(seg.source, seg.target, _line, _para)
             if new_text != seg.target:
                 history.append((index, "target", seg.target))
                 seg.target = new_text

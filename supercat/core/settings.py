@@ -20,6 +20,10 @@ DEFAULTS: Dict[str, Any] = {
     "tm.adapt.tags": True,
     #: Podpowiedzi TM: dopasuj pozycje \\n/\\l/\\p do bieżącego segmentu.
     "tm.adapt.codes": True,
+    # Kody do dopasowania są do wyboru — każda gra może używać innych
+    # znaczników (np. \N, \L). Wpisane literalnie: backslash + znak.
+    "tm.adapt.line.codes": "\\n \\l",
+    "tm.adapt.para.codes": "\\p",
     "tm.filter.english": True,
     #: Nie zapisuj do TM wpisów, których tłumaczenie zostało po angielsku.
     "tm.reject.untranslated": False,

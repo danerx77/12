@@ -773,7 +773,14 @@ podpowiedź po dopasowaniu:
 * `\p` (akapity) przenoszone 1:1 — jeśli w tłumaczeniu jest mniej akapitów,
   brakujących `\p` program **nie wymyśla**,
 * treść i wiodące/końcowe spacje (wcięcie dialogu) zostają nietknięte,
-* tłumaczenie, które ma już tę samą strukturę kodów, nie jest ruszane.
+* tłumaczenie, które ma już tę samą strukturę kodów, nie jest ruszane,
+* **kody są do wyboru**: domyślnie wiersz to `\n` / `\l`, a akapit `\p`,
+  ale Twoja gra może używać innych znaczników — wpisz je w *Ustawienia →
+  Pamięć TM → „Kody do dopasowania”* (pole **Wiersz** i **Akapit**, np.
+  `\N \L` albo `\page`) i dopasowanie będzie operować na nich zamiast
+  na domyślnych. Działa to w podpowiedziach TM i w akcji „⇢ Dopasuj
+  znaczniki do oryginału”. Domyślne `\n`, `\l`, `\p` to przykłady,
+  nie ograniczenie.
 
 Do segmentów, które już przetłumaczono, służy działanie w siatce: **klik
 prawy → „⇢ Dopasuj znaczniki do oryginału”** (działa na wszystkich
@@ -827,7 +834,14 @@ nie wymagają tłumaczenia, ale są elementem ukończonym — reguła `CHEM*` (d
 
 **📋 Gotowe wzorce…** dodają reguły typowe dla plików gier: nagłówki `<<< FILE: … >>>`,
 znaczniki `<<< … >>>`, dyrektywy `#org`, segmenty będące samą zmienną `{STR_VAR_1}`,
-etykiety `[NAZWA]`, ścieżki plików, segmenty bez ani jednej litery.
+etykiety `[NAZWA]`, ścieżki plików, segmenty bez ani jednej litery,
+**teksty po japońsku / chińsku / koreańsku** (działanie: pominięte) oraz
+**wzory `CHEM…`** (działanie: przetłumaczone).
+
+Reguły wbudowane są **dostarczane automatycznie**: projekt utworzony starszą
+wersją programu dostaje nowe gotowce przy pierwszym otwarciu (własne reguły
+zostają nietknięte). Każdą — włącznie z wbudowanymi — możesz wyłączyć
+kratka „✓” albo zmienić jej wzorzec i działanie.
 
 Reguły zapisują się w pliku projektu i działają **automatycznie przy wczytywaniu plików**.
 Okno edycji sprawdza wzorzec **na żywo** na przykładowych wierszach, pokazując osobno

@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import List
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from .textutil import split_edges
 
@@ -141,11 +141,50 @@ def normalize_tags_for_comparison(text: str | None) -> str:
 
 #: Kod, który przełamuje wiersz w plikach gier: \\n (spacja w grze), \\l (bez),
 #: \\p (nowy akapit). Wielkość liter nie ma znaczenia.
-_BREAK_RE = re.compile(r"\\[pPnNlL]")
+#: Domyślne kody przełamania wiersza i akapitu — DO WYBORU w ustawieniach
+#: (``tm.adapt.line.codes`` / ``tm.adapt.para.codes``). Każda gra może używać
+#: innych znaczników (np. ``\\N``, ``\\L``) — wystarczy je podać.
+DEFAULT_LINE_BREAKS = ("\\n", "\\l")
+DEFAULT_PARA_BREAKS = ("\\p",)
 
 #: Znak, po którym można bezpiecznie przełamać wiersz (także pełnej
 #: szerokości spacja CJK).
 _BREAKABLE_AFTER = (" ", "\u3000")
+
+
+def parse_break_codes(raw: str | None, default: Tuple[str, ...]) -> Tuple[str, ...]:
+    """Wczytuje listę kodów z pola ustawień (znaczniki rozdzielone spacjami).
+
+    Puste pole → domyślne kody. Każde pole jest literalnym ciągiem znaków
+    (np. ``\n`` to backslash + litera, dokładnie tak jak w pliku gry).
+    """
+    if raw is None or not str(raw).strip():
+        return tuple(default)
+    codes = tuple(c for c in str(raw).split() if c)
+    return codes if codes else tuple(default)
+
+
+_BREAK_CACHE: Dict[Tuple[Tuple[str, ...], Tuple[str, ...]],
+                   Tuple["re.Pattern", "set"]] = {}
+
+
+def _break_tables(line_breaks: Sequence[str] | None = None,
+                  para_breaks: Sequence[str] | None = None) -> Tuple["re.Pattern", set]:
+    """Skompilowany wzorzec kodów przełamania + zbiór kodów akapitowych."""
+    line = tuple(line_breaks) if line_breaks else DEFAULT_LINE_BREAKS
+    para = tuple(para_breaks) if para_breaks else DEFAULT_PARA_BREAKS
+    key = (line, para)
+    hit = _BREAK_CACHE.get(key)
+    if hit is not None:
+        return hit
+    all_codes = sorted({c.lower() for c in line} | {c.lower() for c in para},
+                       key=len, reverse=True)
+    if not all_codes:
+        all_codes = list(c.lower() for c in DEFAULT_LINE_BREAKS + DEFAULT_PARA_BREAKS)
+    hit = (re.compile("|".join(re.escape(c) for c in all_codes)),
+           {c.lower() for c in para})
+    _BREAK_CACHE[key] = hit
+    return hit
 
 #: Szybkie rozpoznanie tekstu CJK (japoński, chiński, koreański) — po
 #: takich znakach wiersz można łamać w dowolnym miejscu, więc minimalna
@@ -154,8 +193,15 @@ _CJK_DETECT_RE = re.compile(
     "[\u3000-\u30ff\u3400-\u9fff\uf900-\ufaff\uff66-\uff9f\uac00-\ud7af]")
 
 
-def split_code_structure(text: str | None) -> List[List[Tuple[str, str]]]:
-    """Rozbija tekst na akapity (``\\p``) i wiersze (``\\n`` / ``\\l``).
+def split_code_structure(text: str | None,
+                         line_breaks: Sequence[str] | None = None,
+                         para_breaks: Sequence[str] | None = None) -> List[List[Tuple[str, str]]]:
+    """Rozbija tekst na akapity i wiersze według podanych kodów.
+
+    Kody akapitowe (domyślnie ``\\p``) zamykają akapit, kody wierszowe
+    (domyślnie ``\\n`` / ``\\l``) tylko wiersz — ale lista kodów jest
+    DO WYBORU (``line_breaks`` / ``para_breaks``), więc funkcja działa z
+    dowolnymi znacznikami użycia danej gry.
 
     Zwraca listę akapitów; każdy akapit to lista krotek
     ``(treść_wiersza, kod_po_wierszu)`` — kod pustego łańcucha oznacza, że
@@ -164,13 +210,14 @@ def split_code_structure(text: str | None) -> List[List[Tuple[str, str]]]:
     """
     if not text:
         return []
+    break_re, para_set = _break_tables(line_breaks, para_breaks)
     paragraphs: List[List[Tuple[str, str]]] = []
     lines: List[Tuple[str, str]] = []
     last = 0
-    for match in _BREAK_RE.finditer(text):
+    for match in break_re.finditer(text):
         lines.append((text[last:match.start()], match.group()))
         last = match.end()
-        if match.group()[1].lower() == "p":
+        if match.group().lower() in para_set:
             paragraphs.append(lines)
             lines = []
     lines.append((text[last:], ""))
@@ -178,14 +225,16 @@ def split_code_structure(text: str | None) -> List[List[Tuple[str, str]]]:
     return paragraphs
 
 
-def codes_structure_matches(source: str | None, target: str | None) -> bool:
+def codes_structure_matches(source: str | None, target: str | None,
+                            line_breaks: Sequence[str] | None = None,
+                            para_breaks: Sequence[str] | None = None) -> bool:
     """Czy tłumaczenie ma TĄ SAMĄ strukturę kodów co oryginał.
 
     Porównujemy tylko układ (ile akapitów, ile wierszy w akapicie) — nie
     to, który dokładnie znak to przełamał (\\n czy \\l).
     """
-    src = split_code_structure(source or "")
-    tgt = split_code_structure(target or "")
+    src = split_code_structure(source or "", line_breaks, para_breaks)
+    tgt = split_code_structure(target or "", line_breaks, para_breaks)
     if len(src) != len(tgt):
         return False
     for src_par, tgt_par in zip(src, tgt):
@@ -231,8 +280,14 @@ def _find_break(text: str, pos: int, window: int) -> Tuple[int, bool]:
     return pos, False
 
 
-def adapt_codes(source: str | None, target: str | None) -> str:
-    """Dopasowuje znaczniki ``\\n``/``\\l``/``\\p`` w tłumaczeniu do oryginału.
+def adapt_codes(source: str | None, target: str | None,
+                line_breaks: Sequence[str] | None = None,
+                para_breaks: Sequence[str] | None = None) -> str:
+    """Dopasowuje znaczniki wiersza/akapitu w tłumaczeniu do oryginału.
+
+    Kody do dopasowania są DO WYBORU (domyślnie wiersz ``\\n``/``\\l``,
+    akapit ``\\p``) — patrz ``tm.adapt.line.codes`` / ``tm.adapt.para.codes``;
+    inne znaczniki gry podaje się w tych ustawieniach.
 
     W plikach gier linia dialogu ma określoną szerokość, więc tłumaczenie
     powinno przełamywać się w zbliżonych miejscach jak oryginał. Funkcja:
@@ -247,11 +302,11 @@ def adapt_codes(source: str | None, target: str | None) -> str:
     """
     if not source or not target or not target.strip():
         return target or ""
-    if codes_structure_matches(source, target):
+    if codes_structure_matches(source, target, line_breaks, para_breaks):
         return target
 
-    src_paras = split_code_structure(source)
-    tgt_paras = split_code_structure(target)
+    src_paras = split_code_structure(source, line_breaks, para_breaks)
+    tgt_paras = split_code_structure(target, line_breaks, para_breaks)
     tgt_flat = [_flatten_lines(par) for par in tgt_paras]
 
     # Wyrównanie liczby akapitów.
@@ -308,6 +363,13 @@ def adapt_codes(source: str | None, target: str | None) -> str:
         parts.append(text[start:])
         out_paras.append("".join(parts))
 
-    result = "\\p".join(out_paras)
+    # Akapity sklejamy kodem, który faktycznie używa tłumaczenie (domyślnie
+    # \\p) — z własnymi kodami akapitowymi musi wyjść ten sam znacznik.
+    break_re, para_set = _break_tables(line_breaks, para_breaks)
+    para_join = (para_breaks[0] if para_breaks else DEFAULT_PARA_BREAKS[0])
+    found = break_re.search(target)
+    if found is not None and found.group().lower() in para_set:
+        para_join = found.group()
+    result = para_join.join(out_paras)
     lead, _core, trail = split_edges(target)
     return f"{lead}{result}{trail}"

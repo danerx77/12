@@ -3997,6 +3997,102 @@ Dziękujemy za korzystanie z MYSTERY"""
           and _flatten_lines(split_code_structure(ad_short)[0]) == "Krótka odpowiedź.",
           repr(ad_short))
 
+    # --- CHEM w regułach wbudowanych + dowolne kody przełamania ---
+    print("\n24f. Reguły wbudowane: CHEM (przetłumaczone) i JP/CH (pominięte); kody do wyboru")
+    from supercat.core.exclusions import BUILTIN_PRESETS, BUILTIN_VERSION
+    chem_builtin = [r for _n, r in BUILTIN_PRESETS if r.pattern.startswith("CHEM")]
+    check("reguła CHEM* jest wbudowana", len(chem_builtin) == 1,
+          str([r.pattern for _n, r in BUILTIN_PRESETS]))
+    check("reguła CHEM: działanie = przetłumaczone, włączona",
+          chem_builtin and chem_builtin[0].action == "translated" and chem_builtin[0].enabled)
+    cjk_builtin = [r for n, r in BUILTIN_PRESETS if "japo" in n.lower()]
+    check("reguła JP/CH jest wbudowana (pominięte)",
+          len(cjk_builtin) == 1 and cjk_builtin[0].action == "skip" and cjk_builtin[0].enabled,
+          str([n for n, _r in BUILTIN_PRESETS]))
+
+    # projekt z 1 → 2 wersją reguł wbudowanych: CHEM doklejane przy odczycie
+    v1_saved = {"enabled": True, "builtin_version": 1,
+                "rules": [{"pattern": "MÓJ_WZORAC", "match_type": "contains",
+                           "enabled": True, "case_sensitive": False,
+                           "comment": "", "file_filter": "", "action": "skip"}]}
+    merged2 = ExclusionSet.from_dict(v1_saved)
+    check("projekt z wersji 1 dostaje CHEM przy odczycie",
+          any(r.pattern.startswith("CHEM") for r in merged2.rules))
+    check("projekt z wersji 1: własna reguła nietknięta",
+          any(r.pattern == "MÓJ_WZORAC" for r in merged2.rules))
+
+    # end-to-end: CHEM oznaczane automatycznie przy wczytaniu (reguła wbudowana)
+    ch2_dir = os.path.join(tmp, "chemproj2")
+    os.makedirs(ch2_dir, exist_ok=True)
+    ch2_pm = ProjectManager()
+    ch2p = ch2_pm.create_project("Chem2", "en", "pl", ch2_dir)
+    with open(os.path.join(ch2p.source_path, "c2.txt"), "w", encoding="utf-8") as fh:
+        fh.write("CHEM-001 odczynnik\nChemotherapy test\nZwykły tekst.")
+    cw3 = MainWindow()
+    cw3.open_project_path(ch2p.project_file_path)
+    cw3.load_source_files(auto=True)
+    csegs2 = cw3.editor_tab.segments
+    check("CHEM-001: automatycznie przetłumaczone (wbudowana reguła)",
+          len(csegs2) == 3 and csegs2[0].status == "translated" and not csegs2[0].ignored,
+          [(s.source, s.status, s.ignored) for s in csegs2])
+    check("„Chemotherapy”: NIE oznaczona (granica wyrazu działa)",
+          csegs2[1].status == "new" and not csegs2[1].ignored,
+          f"{csegs2[1].status}")
+
+    # --- kody przełamania do wyboru ---
+    from supercat.core.tags import (parse_break_codes, DEFAULT_LINE_BREAKS,
+                                    DEFAULT_PARA_BREAKS)
+    check("domyślne kody: wiersz \\n \\l, akapit \\p",
+          DEFAULT_LINE_BREAKS == ("\\n", "\\l") and DEFAULT_PARA_BREAKS == ("\\p",))
+    check("parse: puste pole → domyślne",
+          parse_break_codes("", DEFAULT_LINE_BREAKS) == DEFAULT_LINE_BREAKS)
+    check("parse: własna lista",
+          parse_break_codes("\\N \\L", ("x",)) == ("\\N", "\\L"))
+
+    src_x = "Linia pierwsza jest dluga\\xale druga\\xtrzecia"
+    tgt_x = "Pierwszy wiersz dlugi ale drugi i trzeci"
+    ad_x = adapt_codes(src_x, tgt_x, line_breaks=("\\x",))
+    check("własny kod wiersza \\x: proporcjonalnie",
+          ad_x.count("\\x") == 2, repr(ad_x))
+    check("własny kod wiersza \\x: treść nietknięta",
+          _flatten_lines(split_code_structure(ad_x, ("\\x",))[0]) == tgt_x, repr(ad_x))
+
+    src_xy = "Alpha long first line\\xAlpha continuation part\\yBeta single line"
+    tgt_xy = "Pierwszy akapit dlugi tekst\\yDrugi akapit prosty"
+    ad_xy = adapt_codes(src_xy, tgt_xy, line_breaks=("\\x",), para_breaks=("\\y",))
+    check("własne kody \\x + \\y: akapit zachowany, wiersz dostawiony",
+          ad_xy.count("\\y") == 1 and "tekst\\yDrugi" in ad_xy
+          and ad_xy.count("\\x") == 1, repr(ad_xy))
+
+    # ustawienia: kody trafiają do TM
+    smgr2 = SettingsManager.instance()
+    _prev_lc = smgr2.get_str("tm.adapt.line.codes", "\\n \\l")
+    _prev_pc = smgr2.get_str("tm.adapt.para.codes", "\\p")
+    smgr2.set("tm.adapt.line.codes", "\\q")
+    smgr2.set("tm.adapt.para.codes", "\\p")
+    tm_dir2 = os.path.join(tmp, "tm_kody2")
+    os.makedirs(tm_dir2, exist_ok=True)
+    tmm2 = TranslationMemory()
+    tmm2.init_for_project(tm_dir2)
+    _src_q = "Pierwsza linia jest dosc dluga\\qDruga linia tez"
+    _tgt_q = "Pierwszy wiersz jest dlugi a drugi takze"
+    check("wpis TM z własnym kodem", tmm2.add(_src_q, _tgt_q, "en", "pl"))
+    hits_q = tmm2.find_fuzzy_matches(_src_q, 70, 5)
+    check("TM: własny kod \\q w podpowiedzi",
+          bool(hits_q) and hits_q[0].text.count("\\q") >= 1,
+          repr(hits_q[0].text if hits_q else ""))
+    smgr2.set("tm.adapt.line.codes", _prev_lc)
+    smgr2.set("tm.adapt.para.codes", _prev_pc)
+
+    # Ustawienia: pola na kody
+    check("ustawienia: pola na kody wiersza i akapitu",
+          hasattr(w.settings_tab, "adapt_line_codes")
+          and hasattr(w.settings_tab, "adapt_para_codes"))
+    check("ustawienia: domyślne wartości w polach",
+          w.settings_tab.adapt_line_codes.text() == "\\n \\l"
+          and w.settings_tab.adapt_para_codes.text() == "\\p",
+          f"{w.settings_tab.adapt_line_codes.text()!r} {w.settings_tab.adapt_para_codes.text()!r}")
+
     # ---------------------------- Nawigacja klawiszami
     print("\n24b. Strzałki i zaznaczanie w siatce")
     from PyQt6.QtTest import QTest as _QTest

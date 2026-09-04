@@ -152,8 +152,10 @@ class ExclusionRule:
 
 
 #: Wersja zestawu reguł wbudowanych. Projekty zapisane starszą wersją
-#: (bez tego pola) dostają brakujące reguły przy pierwszym odczycie.
-BUILTIN_VERSION = 1
+#: (bez tego pola albo z mniejszą liczbą) dostają brakujące reguły
+#: przy pierwszym odczycie — stary projekt nie musi więc nic zmieniać,
+#: żeby zyskać nowe gotowce (np. CHEM…).
+BUILTIN_VERSION = 2
 
 #: Gotowe reguły dla plików gier – proponowane przy pierwszym uruchomieniu.
 #: Zakresy Unicode pisma CJK: japoński (hiragana, katakana), chiński (hanzi),
@@ -243,6 +245,10 @@ BUILTIN_PRESETS: List[Tuple[str, ExclusionRule]] = [
     ("Etykiety w nawiasach kwadratowych  [ETYKIETA]",
      ExclusionRule(r"^\s*\[[A-Za-z0-9_]+\]\s*$", "regex", False, False,
                    "segment będący samą etykietą")),
+    ("Wzory CHEM… (chemia)",
+     ExclusionRule(r"CHEM\b", "regex", True, True,
+                   "wzory typu CHEM-001, CHEM 12 — gotowe, oznaczane jako przetłumaczone",
+                   action="translated")),
 ]
 
 

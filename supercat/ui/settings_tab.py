@@ -1295,6 +1295,37 @@ class SettingsTab(QTabWidget):
         self.adapt_codes.stateChanged.connect(lambda s: self.settings.set("tm.adapt.codes", bool(s)))
         form.addRow(self.adapt_codes)
 
+        codes_row = QWidget()
+        codes_form = QHBoxLayout(codes_row)
+        codes_form.setContentsMargins(0, 0, 0, 0)
+        self.adapt_line_codes = QLineEdit()
+        self.adapt_line_codes.setPlaceholderText("\\n \\l")
+        self.adapt_line_codes.setToolTip(
+            "Kody przełamania WIERSZA — do wyboru, w zależności od gry.\n"
+            "Wpisz literalne znaczniki rozdzielone spacjami (backslash + znak):\n"
+            "domyślnie \\n i \\l. Np. dla innej gry: \\N \\L albo \\nl")
+        self.adapt_para_codes = QLineEdit()
+        self.adapt_para_codes.setPlaceholderText("\\p")
+        self.adapt_para_codes.setToolTip(
+            "Kody przełamania AKAPITU / strony dialogu — do wyboru.\n"
+            "Domyślnie \\p. Np. dla innej gry: \\P albo \\page")
+        codes_form.addWidget(QLabel("Wiersz:"))
+        codes_form.addWidget(self.adapt_line_codes, 1)
+        codes_form.addWidget(QLabel("Akapit:"))
+        codes_form.addWidget(self.adapt_para_codes, 1)
+        self.adapt_line_codes.setText(self.settings.get_str("tm.adapt.line.codes", "\\n \\l"))
+        self.adapt_para_codes.setText(self.settings.get_str("tm.adapt.para.codes", "\\p"))
+        self.adapt_line_codes.editingFinished.connect(
+            lambda: self.settings.set("tm.adapt.line.codes", self.adapt_line_codes.text().strip()))
+        self.adapt_para_codes.editingFinished.connect(
+            lambda: self.settings.set("tm.adapt.para.codes", self.adapt_para_codes.text().strip()))
+        codes_box = QGroupBox("Kody do dopasowania (dowolne, zależne od gry)")
+        codes_box.setStyleSheet("QGroupBox { font-size: 11px; color: #666; }")
+        cb_l = QVBoxLayout(codes_box)
+        cb_l.setContentsMargins(8, 4, 8, 4)
+        cb_l.addWidget(codes_row)
+        form.addRow(codes_box)
+
         self.filter_english = QCheckBox("Ukrywaj wpisy nieprzetłumaczone (tłumaczenie ≈ źródło)")
         self.filter_english.setToolTip(
             "Dotyczy PODPOWIEDZI: wpisy, gdzie tłumaczenie jest kopią źródła,\n"

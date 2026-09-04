@@ -171,8 +171,15 @@ def _adapt_to_segment(source: str, target: str) -> str:
     się w tych samych miejscach co oryginał (ustawienie ``tm.adapt.codes``).
     """
     out = adapt_translation(source, target)
-    if SettingsManager.instance().get_bool("tm.adapt.codes", True):
-        out = adapt_codes(source, out)
+    sm = SettingsManager.instance()
+    if sm.get_bool("tm.adapt.codes", True):
+        from .tags import (DEFAULT_LINE_BREAKS, DEFAULT_PARA_BREAKS,
+                           parse_break_codes)
+        line_codes = parse_break_codes(
+            sm.get_str("tm.adapt.line.codes", "\\n \\l"), DEFAULT_LINE_BREAKS)
+        para_codes = parse_break_codes(
+            sm.get_str("tm.adapt.para.codes", "\\p"), DEFAULT_PARA_BREAKS)
+        out = adapt_codes(source, out, line_codes, para_codes)
     return out
 
 
