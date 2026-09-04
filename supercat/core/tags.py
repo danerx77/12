@@ -168,6 +168,80 @@ _BREAK_CACHE: Dict[Tuple[Tuple[str, ...], Tuple[str, ...]],
                    Tuple["re.Pattern", "set"]] = {}
 
 
+#: Rodziny znaków, które w plikach gier wyglądają jak kody:
+#: escape backslash + litery (\\n, \\N, \\nl…), zmienne {NAZWA}
+#: i tagi <<NAZWA>>.
+_ESCAPE_CODE_RE = re.compile(r"\\[A-Za-z]")
+_VAR_CODE_RE = re.compile(r"\{[A-Za-z0-9_]+\}")
+_TAG_CODE_RE = re.compile(r"<<[A-Za-z0-9_ ]+>>")
+
+
+def detect_codes(text: str | None) -> Dict[str, int]:
+    """Rozpoznaje kody w tekście i zwraca ``{kod: ile razy}``.
+
+    Działa na DOWOLNYM tekście — bez konfiguracyjnej listy: program sam
+    widzi, że ``\\N`` czy ``{VAR_1}`` to kod, bo tak wygląda (backslash
+    + litery / klamry / podwójne nawiązy kwadratowe). Używane np. w
+    przycisku „Wymień kody z plików” i w automatycznym dopasowaniu.
+    """
+    if not text:
+        return {}
+    found: Dict[str, int] = {}
+    for rx in (_ESCAPE_CODE_RE, _VAR_CODE_RE, _TAG_CODE_RE):
+        for match in rx.finditer(text):
+            code = match.group()
+            found[code] = found.get(code, 0) + 1
+    return found
+
+
+def parse_code_list(raw: str | None) -> Tuple[Tuple[str, ...], Tuple[str, ...]]:
+    """Rozbija wklejoną listę kodów na (escape, inline).
+
+    Lista to kody rozdzielone spacjami, np.
+    ``\\n \\l \\p {VAR_1} <<KON>>``. Escape zaczynają się od backslasha;
+    reszta (zmienne, tagi) to kody inline.
+    """
+    if not raw or not str(raw).strip():
+        return (), ()
+    parts = [c for c in str(raw).split() if c]
+    esc = tuple(c for c in parts if c.startswith("\\"))
+    inline = tuple(c for c in parts if c not in esc)
+    return esc, inline
+
+
+def effective_break_codes(
+    source: str,
+    line_codes: tuple[str, ...],
+    para_codes: tuple[str, ...],
+    extra_codes: tuple[str, ...] = (),
+    auto_detect: bool = True,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Dopasowanie kodów: ustawienia + wklejona lista + auto-detekcja z tekstu."""
+    line = tuple(dict.fromkeys(line_codes or ()))
+    para = tuple(dict.fromkeys(para_codes or ()))
+    if extra_codes:
+        for c in extra_codes:
+            if not isinstance(c, str) or not c or c in line or c in para:
+                continue
+            if c.lower().startswith("\\p"):
+                para = para + (c,)
+            else:
+                line = line + (c,)
+        line = tuple(dict.fromkeys(line))
+        para = tuple(dict.fromkeys(para))
+    if auto_detect:
+        line_set = set(line)
+        para_set = set(para)
+        for c in detect_codes(source):
+            if c in para_set or c in line_set:
+                continue
+            if c.lower().startswith("\\p"):
+                para = para + (c,)
+                para_set.add(c)
+            else:
+                line = line + (c,)
+                line_set.add(c)
+    return line, para
 def _break_tables(line_breaks: Sequence[str] | None = None,
                   para_breaks: Sequence[str] | None = None) -> Tuple["re.Pattern", set]:
     """Skompilowany wzorzec kodów przełamania + zbiór kodów akapitowych."""
@@ -181,7 +255,7 @@ def _break_tables(line_breaks: Sequence[str] | None = None,
                        key=len, reverse=True)
     if not all_codes:
         all_codes = list(c.lower() for c in DEFAULT_LINE_BREAKS + DEFAULT_PARA_BREAKS)
-    hit = (re.compile("|".join(re.escape(c) for c in all_codes)),
+    hit = (re.compile("|".join(re.escape(c) for c in all_codes), re.IGNORECASE),
            {c.lower() for c in para})
     _BREAK_CACHE[key] = hit
     return hit

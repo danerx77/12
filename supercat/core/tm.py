@@ -179,6 +179,11 @@ def _adapt_to_segment(source: str, target: str) -> str:
             sm.get_str("tm.adapt.line.codes", "\\n \\l"), DEFAULT_LINE_BREAKS)
         para_codes = parse_break_codes(
             sm.get_str("tm.adapt.para.codes", "\\p"), DEFAULT_PARA_BREAKS)
+        from .tags import effective_break_codes, parse_code_list
+        _esc, _inl = parse_code_list(sm.get_str("tm.codes.list", ""))
+        line_codes, para_codes = effective_break_codes(
+            source, line_codes, para_codes,
+            extra_codes=_esc, auto_detect=not (_esc or _inl))
         out = adapt_codes(source, out, line_codes, para_codes)
     return out
 

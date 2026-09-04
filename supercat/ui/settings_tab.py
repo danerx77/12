@@ -543,6 +543,26 @@ class SettingsTab(QTabWidget):
         self._fill_exclusions_table()
         self._refresh_exclusions_preview()
 
+    def _detect_codes_from_files(self) -> None:
+        """Skanuje źródła otwartego projektu i wypełnia listę kodów gry."""
+        from ..core.tags import detect_codes
+
+        editor = getattr(self.app, "editor_tab", None)
+        segments = editor.segments if editor and editor.segments else []
+        found: dict[str, int] = {}
+        for seg in segments:
+            for text in (seg.source or "", seg.target or ""):
+                for code in detect_codes(text):
+                    found[code] = found.get(code, 0) + 1
+        if not found:
+            self.game_code_list.setPlaceholderText(
+                "W otwartym projekcie nie znaleziono żadnych kodów")
+            self.game_code_list.setFocus()
+            return
+        ordered = [c for c, _ in sorted(found.items(), key=lambda kv: (-kv[1], kv[0]))]
+        self.game_code_list.setText(" ".join(ordered))
+        self.settings.set("tm.codes.list", " ".join(ordered))
+
     def _fill_exclusions_table(self) -> None:
         from ..core.exclusions import MATCH_TYPES, RULE_ACTIONS
 
@@ -1319,11 +1339,36 @@ class SettingsTab(QTabWidget):
             lambda: self.settings.set("tm.adapt.line.codes", self.adapt_line_codes.text().strip()))
         self.adapt_para_codes.editingFinished.connect(
             lambda: self.settings.set("tm.adapt.para.codes", self.adapt_para_codes.text().strip()))
+        codes_list_row = QWidget()
+        codes_list_form = QHBoxLayout(codes_list_row)
+        codes_list_form.setContentsMargins(0, 0, 0, 0)
+        self.game_code_list = QLineEdit()
+        self.game_code_list.setPlaceholderText(
+            "np. \\n \\l {VAR} <<TAG>> — spacjami albo liniami")
+        self.game_code_list.setToolTip(
+            "Lista wszystkich kodów gry, które mają znaczenie (do wklejenia).\\n"
+            "Wklej np. skopiowaną z dokumentacji listę — program rozpozna kody\\n"
+            "escape (\\n, \\N, \\x1B) oraz znaczniki w klamrach/nawiasach ({VAR},\\n"
+            "<<TAG>>). Jeśli pole jest puste, kody są WYKRYWANE AUTOMATYCZNIE\\n"
+            "z tekstu źródłowego bieżącego segmentu — nic nie musisz wpisywać.")
+        self.detect_codes_btn = QPushButton("Auto-wykryj z pliku")
+        self.detect_codes_btn.setToolTip(
+            "Skanuje tekst źródłowy otwartego projektu i wpisywa tu wszystkie\\n"
+            "znaczniki, które program rozpoznał jako kody gry.")
+        self.detect_codes_btn.clicked.connect(self._detect_codes_from_files)
+        codes_list_form.addWidget(QLabel("Lista kodów:"))
+        codes_list_form.addWidget(self.game_code_list, 1)
+        codes_list_form.addWidget(self.detect_codes_btn)
+        self.game_code_list.setText(self.settings.get_str("tm.codes.list", ""))
+        self.game_code_list.editingFinished.connect(
+            lambda: self.settings.set("tm.codes.list", self.game_code_list.text().strip()))
+
         codes_box = QGroupBox("Kody do dopasowania (dowolne, zależne od gry)")
         codes_box.setStyleSheet("QGroupBox { font-size: 11px; color: #666; }")
         cb_l = QVBoxLayout(codes_box)
         cb_l.setContentsMargins(8, 4, 8, 4)
         cb_l.addWidget(codes_row)
+        cb_l.addWidget(codes_list_row)
         form.addRow(codes_box)
 
         self.filter_english = QCheckBox("Ukrywaj wpisy nieprzetłumaczone (tłumaczenie ≈ źródło)")

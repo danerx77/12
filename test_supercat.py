@@ -4093,6 +4093,86 @@ Dziękujemy za korzystanie z MYSTERY"""
           and w.settings_tab.adapt_para_codes.text() == "\\p",
           f"{w.settings_tab.adapt_line_codes.text()!r} {w.settings_tab.adapt_para_codes.text()!r}")
 
+    # --- auto-detekcja kodów z tekstu + wklejona lista kodów ---
+    print("\n24g. Auto-detekcja kodów z tekstu + lista kodów do wklejenia")
+    from supercat.core.tags import (detect_codes, parse_code_list,
+                                    effective_break_codes)
+    det = detect_codes("a\\Nbb\\lcc {HIT} <<SP>> {HIT}")
+    check("detekcja: kody escape (\\N, \\l)", det.get("\\N") == 1 and det.get("\\l") == 1, str(det))
+    check("detekcja: klamry i nawiasy ({HIT}, <<SP>>)",
+          det.get("{HIT}") == 2 and det.get("<<SP>>") == 1, str(det))
+    check("detekcja: \\N ≠ \\n (wielkość ma znaczenie)",
+          "\\N" in det and "\\n" not in det, str(det))
+    check("detekcja: zwykły tekst → pusto",
+          detect_codes("Zwykły tekst bez żadnych znaczników") == {}, "")
+    esc_l, inl_l = parse_code_list("\\q \\r\n{H}\n<<A>>")
+    check("lista kodów: escape + znaczniki",
+          esc_l == ("\\q", "\\r") and inl_l == ("{H}", "<<A>>"), f"{esc_l} {inl_l}")
+    check("lista kodów: puste pole → pusto", parse_code_list("   \n ") == ((), ()))
+
+    el, ep = effective_break_codes("a\\Nbb\\lcc", ("\\n", "\\l"), ("\\p",))
+    check("skuteczne kody: auto-dodany \\N obok ustawionych",
+          "\\N" in el and "\\n" in el and "\\l" in el, str(el))
+    el2, ep2 = effective_break_codes(
+        "abc", ("\\n",), ("\\p",), extra_codes=("\\Page",), auto_detect=False)
+    check("skuteczne kody: kod \\Page z listy → akapit", "\\Page" in ep2, str(ep2))
+    el2b, ep2b = effective_break_codes("a\\Pbb", ("\\n",), ("\\p",))
+    check("skuteczne kody: auto-detekcja \\P → akapit",
+          "\\P" in ep2b and "\\P" not in el2b, f"{el2b} {ep2b}")
+    el3, _ = effective_break_codes(
+        "a\\Nbb", ("\\n",), ("\\p",), extra_codes=("\\z",), auto_detect=False)
+    check("skuteczne kody: wklejona lista wyłączà auto-detekcję",
+          "\\N" not in el3 and "\\z" in el3, str(el3))
+
+    # end-to-end przez TM: auto-detekcja kodu z tekstu źródła
+    _prev_cl = smgr2.get_str("tm.codes.list", "")
+    _prev_lc2 = smgr2.get_str("tm.adapt.line.codes", "\\n \\l")
+    _prev_pc2 = smgr2.get_str("tm.adapt.para.codes", "\\p")
+    smgr2.set("tm.codes.list", "")
+    smgr2.set("tm.adapt.line.codes", "\\n \\l")
+    smgr2.set("tm.adapt.para.codes", "\\p")
+    tm_dir3 = os.path.join(tmp, "tm_autokody")
+    os.makedirs(tm_dir3, exist_ok=True)
+    tmm3 = TranslationMemory()
+    tmm3.init_for_project(tm_dir3)
+    _src_auto = "Long first line of the original text\\zSecond line of it"
+    _tgt_auto = "Długi pierwszy wiersz i drugi wiersz oryginału"
+    check("TM: wpis z kodem \\z", tmm3.add(_src_auto, _tgt_auto, "en", "pl"))
+    hits_a = tmm3.find_fuzzy_matches(_src_auto, 70, 5)
+    check("TM: auto-detekcja — kod \\z (poza ustawieniami) dopasowany",
+          bool(hits_a) and hits_a[0].text.count("\\z") == 1,
+          repr(hits_a[0].text if hits_a else ""))
+    smgr2.set("tm.codes.list", "\\n")
+    hits_b = tmm3.find_fuzzy_matches(_src_auto, 70, 5)
+    check("TM: wklejona lista ma pierwszeństwo (\\z nie z listy → bez kodu)",
+          bool(hits_b) and hits_b[0].text.count("\\z") == 0,
+          repr(hits_b[0].text if hits_b else ""))
+    smgr2.set("tm.codes.list", _prev_cl)
+    smgr2.set("tm.adapt.line.codes", _prev_lc2)
+    smgr2.set("tm.adapt.para.codes", _prev_pc2)
+
+    # UI: pole „Lista kodów” + przycisk detekcji z otwartego projektu
+    cw4_dir = os.path.join(tmp, "kodproj")
+    os.makedirs(cw4_dir, exist_ok=True)
+    cw4_pm = ProjectManager()
+    cw4p = cw4_pm.create_project("Kody", "en", "pl", cw4_dir)
+    with open(os.path.join(cw4p.source_path, "k.txt"), "w", encoding="utf-8") as fh:
+        fh.write("Line one of the dialogue\\NLine two\\nPlain line\\lContinuation {VAR} <<END>>")
+    cw4 = MainWindow()
+    cw4.open_project_path(cw4p.project_file_path)
+    cw4.load_source_files(auto=True)
+    st4 = cw4.settings_tab
+    check("ustawienia: pole listy kodów + przycisk detekcji",
+          hasattr(st4, "game_code_list") and hasattr(st4, "detect_codes_btn"))
+    st4.game_code_list.setText("")
+    st4._detect_codes_from_files()
+    det_txt = st4.game_code_list.text()
+    check("detekcja z pliku: pole wypełnione rozpoznawczymi kodami",
+          "\\N" in det_txt and "{VAR}" in det_txt and "<<END>>" in det_txt, repr(det_txt))
+    check("detekcja z pliku: wartość zapisana w ustawieniach",
+          SettingsManager.instance().get_str("tm.codes.list") == det_txt)
+    SettingsManager.instance().set("tm.codes.list", _prev_cl)
+
     # ---------------------------- Nawigacja klawiszami
     print("\n24b. Strzałki i zaznaczanie w siatce")
     from PyQt6.QtTest import QTest as _QTest

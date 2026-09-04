@@ -673,7 +673,7 @@ Zakładka *Ustawienia → **💾 Pamięć TM*** ma teraz jasne nazwy i komplet w
 
 | Grupa | Przełączniki |
 |---|---|
-| **🔍 Podpowiedzi z pamięci TM** | **włącz/wyłącz podpowiedzi** (nowe) • próg dopasowania • liczba wyników • zapis do TMX • dopasowywanie tagów • **dopasowanie przełań (\n, \p) do oryginału** (nowe) • ukrywanie wpisów nieprzetłumaczonych |
+| **🔍 Podpowiedzi z pamięci TM** | **włącz/wyłącz podpowiedzi** (nowe) • próg dopasowania • liczba wyników • zapis do TMX • dopasowywanie tagów • **dopasowanie przełań (\n, \p) do oryginału** (nowe) • **auto-detekcja kodów gry z tekstu + wklejona lista kodów** (nowe) • ukrywanie wpisów nieprzetłumaczonych |
 | **🔗 Dopasowanie zdań** | składanie z fragmentów • minimalne podobieństwo • wyłączenie przy dużej pamięci • szukanie w segmentach projektu • automatyczne wstawianie złożenia |
 | **✍️ Automatyczne wstawianie** | wstawianie do pustego segmentu • **nadpisywanie istniejącego tłumaczenia** (nowe) • **zapis zatwierdzonego segmentu do TM** (nowe) |
 | **⚡ Automatyka po wczytaniu plików** | uzupełnianie z TM • tłumaczenie maszynowe reszty • pytanie o zgodę |
@@ -781,6 +781,19 @@ podpowiedź po dopasowaniu:
   na domyślnych. Działa to w podpowiedziach TM i w akcji „⇢ Dopasuj
   znaczniki do oryginału”. Domyślne `\n`, `\l`, `\p` to przykłady,
   nie ograniczenie.
+* **auto-detekcja kodów** — program sam rozpoznaje kody w tekście, bez
+  żadnych ustawień: znacznik z backslashem (`\N`, `\x1B` — backslash +
+  znak), zmienna w klamrach (`{USER_1}`) i tag w podwójnych nawiasach
+  (`<<SKOK>>`). Jeśli kodu nie ma w polach Wiersz/Akapit, jest doklejany
+  automatycznie (kody typu `\p`/`\Page` trafiają do akapitów), więc np.
+  `\N` w oryginale wyląduje w podpowiedzi jako `\N` — w tamtym samym
+  miejscu co w oryginale.
+* **wklejona lista kodów** — pole *Lista kodów* w tym samym grupie ustawień:
+  wklej tam wszystkie znaczniki, które w Twojej grze mają znaczenie
+  (spacjami lub liniami, np. `\n \l {VAR} <<TAG>>`). Puste pole = pełna
+  auto-detekcja; wypełniona lista = dokładnie te kody (auto-detekcja
+  wyłączona). Przycisk **„Auto-wykryj z pliku”** skanuje otwarty projekt
+  i wypełnia listę tym, co program rozpoznał w źródłach i tłumaczeniach.
 
 Do segmentów, które już przetłumaczono, służy działanie w siatce: **klik
 prawy → „⇢ Dopasuj znaczniki do oryginału”** (działa na wszystkich

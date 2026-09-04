@@ -24,6 +24,9 @@ DEFAULTS: Dict[str, Any] = {
     # znaczników (np. \N, \L). Wpisane literalnie: backslash + znak.
     "tm.adapt.line.codes": "\\n \\l",
     "tm.adapt.para.codes": "\\p",
+    #: Lista kodów gry — wklej kod po kodzie (np. \n, \l, {VAR}, <<TAG>>).
+    # Jeśli pusta — kody są auto-detekowane z tekstu źródłowego.
+    "tm.codes.list": "",
     "tm.filter.english": True,
     #: Nie zapisuj do TM wpisów, których tłumaczenie zostało po angielsku.
     "tm.reject.untranslated": False,

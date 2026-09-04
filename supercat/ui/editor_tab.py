@@ -2442,6 +2442,11 @@ class EditorTab(QWidget):
             _para = parse_break_codes(
                 _sm_codes.get_str("tm.adapt.para.codes", "\\p"),
                 DEFAULT_PARA_BREAKS)
+            from ..core.tags import effective_break_codes, parse_code_list
+            _esc, _inl = parse_code_list(_sm_codes.get_str("tm.codes.list", ""))
+            _line, _para = effective_break_codes(
+                seg.source, _line, _para,
+                extra_codes=_esc, auto_detect=not (_esc or _inl))
             new_text = adapt_codes(seg.source, seg.target, _line, _para)
             if new_text != seg.target:
                 history.append((index, "target", seg.target))
