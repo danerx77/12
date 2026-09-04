@@ -184,7 +184,8 @@ def _adapt_to_segment(source: str, target: str) -> str:
         line_codes, para_codes = effective_break_codes(
             source, line_codes, para_codes,
             extra_codes=_esc, auto_detect=not (_esc or _inl))
-        out = adapt_codes(source, out, line_codes, para_codes)
+        out = adapt_codes(source, out, line_codes, para_codes,
+                          smart=sm.get_bool("tm.adapt.codes.smart", True))
     return out
 
 

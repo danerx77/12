@@ -33,6 +33,27 @@ def fold_accents(text: str) -> str:
 
 
 # ----------------------------------------------------------- białe znaki
+def fix_doubled_break_codes(text: str | None) -> str:
+    """Poprawia podwójne backslashy przed znakami kodów: ``\\n`` → ``\n``.
+
+    Niektóre ekstraktyory uciekają backslashy, więc kod przełamania ląduje
+    w pliku z podwójnym backslashem. Parzysta liczba backslashów przed
+    literą kurczy się do jednego; nieparzysta zostaje (nie ruszamy czegoś,
+    czego nie rozumiemy).
+    """
+    if not text or "\\" not in text:
+        return text or ""
+
+    def _fix(m: "re.Match") -> str:
+        bs = m.group(0)
+        return "\\" if len(bs) % 2 == 0 else bs
+
+    return _DOUBLE_BS_RE.sub(_fix, text)
+
+
+_DOUBLE_BS_RE = re.compile(r"\\+(?=[A-Za-z])")
+
+
 def split_edges(text: str) -> Tuple[str, str, str]:
     """Rozdziela tekst na (wiodące białe znaki, treść, końcowe białe znaki)."""
     if not text:

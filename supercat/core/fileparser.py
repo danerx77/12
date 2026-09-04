@@ -62,6 +62,13 @@ def parse_file(path: str, seg_settings=None) -> List[Segment]:
     name = os.path.basename(path)
     for seg in segments:
         seg.file_name = name
+
+    from .settings import SettingsManager
+    if SettingsManager.instance().get_bool("tm.codes.fix.double", True):
+        from .textutil import fix_doubled_break_codes
+        for seg in segments:
+            seg.source = fix_doubled_break_codes(seg.source)
+            seg.target = fix_doubled_break_codes(seg.target)
     return segments
 
 

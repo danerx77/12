@@ -1363,12 +1363,37 @@ class SettingsTab(QTabWidget):
         self.game_code_list.editingFinished.connect(
             lambda: self.settings.set("tm.codes.list", self.game_code_list.text().strip()))
 
+        self.adapt_codes_smart = QCheckBox(
+            "Ulepszona lokalizacja przełamania: dopasuj wyrazy tłumaczenia do wierszy oryginału")
+        self.adapt_codes_smart.setToolTip(
+            "Włączone (domyślnie): program pasuje wyrazy tłumaczenia do wierszy\n"
+            "oryginału i wstawia kod tam, gdzie faktycznie leży ich odpowiednik.\n"
+            "Wyłączone: klasyczny podział proporcjonalny do długości wierszy.")
+        self.adapt_codes_smart.setChecked(
+            self.settings.get_bool("tm.adapt.codes.smart", True))
+        self.adapt_codes_smart.stateChanged.connect(
+            lambda s: self.settings.set("tm.adapt.codes.smart", bool(s)))
+
+        self.fix_double_bs = QCheckBox(
+            "Poprawiaj podwójne backslashy przed kodami (\\\\n → \\n) przy wczytywaniu plików")
+        self.fix_double_bs.setToolTip(
+            "Niektóre ekstraktyory zapisują kody z podwójnym backslashem\n"
+            "(\\\\n zamiast \\n). Włączona opcja kurczy je do jednego już przy\n"
+            "otwieraniu pliku — kody są potem dopasowywane i zapisywane\n"
+            "w prawidłowej postaci.")
+        self.fix_double_bs.setChecked(
+            self.settings.get_bool("tm.codes.fix.double", True))
+        self.fix_double_bs.stateChanged.connect(
+            lambda s: self.settings.set("tm.codes.fix.double", bool(s)))
+
         codes_box = QGroupBox("Kody do dopasowania (dowolne, zależne od gry)")
         codes_box.setStyleSheet("QGroupBox { font-size: 11px; color: #666; }")
         cb_l = QVBoxLayout(codes_box)
         cb_l.setContentsMargins(8, 4, 8, 4)
         cb_l.addWidget(codes_row)
         cb_l.addWidget(codes_list_row)
+        cb_l.addWidget(self.adapt_codes_smart)
+        cb_l.addWidget(self.fix_double_bs)
         form.addRow(codes_box)
 
         self.filter_english = QCheckBox("Ukrywaj wpisy nieprzetłumaczone (tłumaczenie ≈ źródło)")

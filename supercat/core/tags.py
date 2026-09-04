@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Optional, Sequence, Set, Tuple
@@ -354,9 +355,134 @@ def _find_break(text: str, pos: int, window: int) -> Tuple[int, bool]:
     return pos, False
 
 
+#: ---------------- dopasowanie „inteligentne” (po słowach) ----------------
+_SMART_WORD_RE = re.compile(r"[^\s]+")
+_SMART_STRIP = ".,;:!?'\"()[]{}«»—–-"
+
+
+def _norm_words(text: str) -> List[str]:
+    """Wyrazy do porównywania: bez interpunkcji przy brzegach, małe litery."""
+    out: List[str] = []
+    for w in _SMART_WORD_RE.findall(text or ""):
+        w = w.strip(_SMART_STRIP).casefold()
+        if w:
+            out.append(w)
+    return out
+
+
+def _counter_jaccard(a: "Counter", b: "Counter") -> float:
+    """Podobieństwo dwóch (wielo)zbiorów wyrazów: 0.0–1.0."""
+    union = sum((a | b).values())
+    if not union:
+        return 0.0
+    return sum((a & b).values()) / union
+
+
+def _word_boundary(pos: int, spans: List[Tuple[int, int]]) -> int:
+    """Ile wyrazów leży przed pozycją ``pos`` (na granicy przełamania)."""
+    b = 0
+    for s, _e in spans:
+        if s < pos:
+            b += 1
+        else:
+            break
+    return b
+
+
+def _breaks_score(breaks: List[Tuple[int, int]],
+                  line_words: List[List[str]],
+                  prefix: List["Counter"], m: int) -> float:
+    """Suma podobieństwa: wiersze oryginału ↔ kawałki tłumaczenia.
+
+    ``breaks`` — pary (numer wiersza oryginału po którym łamiemy [1..n-1],
+    granica w liczbie wyrazów tłumaczenia), rosnąco.
+    """
+    score = 0.0
+    prev_l = prev_w = 0
+    for lw, bw in breaks:
+        if bw <= prev_w or lw <= prev_l:
+            continue
+        chunk = prefix[bw] - prefix[prev_w]
+        total: Counter = Counter()
+        for li in range(prev_l, lw):
+            total += Counter(line_words[li])
+        score += _counter_jaccard(total, chunk)
+        prev_l, prev_w = lw, bw
+    if prev_w < m or prev_l < len(line_words):
+        total: Counter = Counter()
+        for li in range(prev_l, len(line_words)):
+            total += Counter(line_words[li])
+        score += _counter_jaccard(total, prefix[m] - prefix[prev_w])
+    return score
+
+
+def _smart_breaks_scored(
+        text: str, src_par: List[List[Tuple[str, str]]],
+        spans: List[Tuple[int, int]], prefix: List["Counter"],
+        line_words: List[List[str]]
+) -> Tuple[List[Tuple[int, bool, str, int]], float] | None:
+    """Przełamania w miejscu, gdzie tłumaczenie ma odpowiednik wiersza oryginału.
+
+    Program „czyta” oba teksty po wyrazach: każdy wiersz oryginału jest
+    dopasowany (DP, suma podobieństw maksymalna, granice rosną) do kawałka
+    tłumaczenia, a przełamanie stawia tam, gdzie ten kawałek się kończy.
+    Zwraca ``(pozycja, zjada_spację, kod, numer_wiersza)`` + wynik dopasowania
+    albo ``None``, gdy taki układ jest niemożliwy/brzydki.
+    """
+    n = len(src_par)
+    m = len(spans)
+    if not (2 <= n <= 6) or m < n or m > 64:
+        return None
+    if any(not lw for lw in line_words):
+        return None
+    line_counters = [Counter(lw) for lw in line_words]
+    NEG = float("-inf")
+    dp = [[NEG] * (m + 1) for _ in range(n + 1)]
+    back = [[-1] * (m + 1) for _ in range(n + 1)]
+    dp[0][0] = 0.0
+    for i in range(1, n + 1):
+        minw = 1 if i == n else 2
+        for j in range(minw, m - (n - i) + 1):
+            best, bk = NEG, -1
+            for k in range(j - minw, -1, -1):
+                if dp[i - 1][k] == NEG:
+                    continue
+                sc = dp[i - 1][k] + _counter_jaccard(
+                    line_counters[i - 1], prefix[j] - prefix[k])
+                if sc > best:
+                    best, bk = sc, k
+            dp[i][j] = best
+            back[i][j] = bk
+    if dp[n][m] == NEG:
+        return None
+    bounds: List[int] = []
+    j = m
+    for i in range(n, 1, -1):
+        j = back[i][j]
+        bounds.append(j)
+    bounds.reverse()
+    prev_end = 0
+    for bi, b in enumerate(bounds):
+        s, e = spans[b - 1]
+        eats = e < len(text) and text[e] == " "
+        if bi < len(bounds) - 1 and e - prev_end < 3:
+            return None      # wiersz byłby ułamkiem — lepiej proporcjonalnie
+        prev_end = e + (1 if eats else 0)
+    if len(text) - prev_end < 3:
+        return None          # po ostatnim przełamaniu zostałby ułamek
+    breaks: List[Tuple[int, bool, str, int]] = []
+    for bi, b in enumerate(bounds):
+        s, e = spans[b - 1]
+        eats = e < len(text) and text[e] == " "
+        breaks.append((e, eats, src_par[bi][1], bi + 1))
+    score = _breaks_score(
+        [(bi + 1, b) for bi, b in enumerate(bounds)], line_words, prefix, m)
+    return breaks, score
+
 def adapt_codes(source: str | None, target: str | None,
                 line_breaks: Sequence[str] | None = None,
-                para_breaks: Sequence[str] | None = None) -> str:
+                para_breaks: Sequence[str] | None = None,
+                smart: bool = True) -> str:
     """Dopasowuje znaczniki wiersza/akapitu w tłumaczeniu do oryginału.
 
     Kody do dopasowania są DO WYBORU (domyślnie wiersz ``\\n``/``\\l``,
@@ -369,7 +495,11 @@ def adapt_codes(source: str | None, target: str | None,
     * nie rusza tłumaczenia, gdy struktura kodów już się zgadza,
     * przenosi akapity (``\\p``) 1:1 — nadwyżkę dokleja do ostatniego,
     * wiersze rozkłada proporcjonalnie do długości wierszy oryginału,
-      przełamując przy najbliższej spacji (w CJK — w miejscu proporcji),
+      przełamując przy najbliższej spacji (w CJK — w miejscu proporcji);
+      w trybie inteligentnym (``smart``, domyślnie włączone) program
+      pasuje wyrazy tłumaczenia do wierszy oryginału i stawia przełamanie
+      tam, gdzie faktycznie leży ich odpowiednik (wygrywa lepszy z
+      dwóch układów, ocenionych tym samym kryterium),
     * zachowuje wiodące/końcowe spacje tłumaczenia (wcięcie dialogu).
 
     Wynik ma te same treść (bez kodów) co wejście, a inną — układ kodów.
@@ -413,20 +543,41 @@ def adapt_codes(source: str | None, target: str | None,
         min_gap = 3 if cjk_text else 4
         tail_min = 2 if cjk_text else 3
 
-        breaks: List[Tuple[int, bool, str]] = []     # (pozycja, zjada spację, kod)
+        prop_breaks: List[Tuple[int, bool, str, int]] = []  # (pozycja, spacja, kod, wiersz)
         consumed = 0
         for idx in range(1, len(src_par)):
             wanted = round(len(text) * (consumed + widths[idx - 1]) / total)
             pos, eats = _find_break(text, wanted, window)
             code = src_par[idx - 1][1]
             consumed += widths[idx - 1]
-            if breaks:
-                last_end = breaks[-1][0] + (1 if breaks[-1][1] else 0)
+            if prop_breaks:
+                last_end = prop_breaks[-1][0] + (1 if prop_breaks[-1][1] else 0)
                 if pos - last_end < min_gap:
                     continue        # wiersz byłby zbyt krótki — kod odpada
             if len(text) - (pos + (1 if eats else 0)) < tail_min:
                 continue            # po przełamaniu zostałby ułamek wiersza
-            breaks.append((pos, eats, code))
+            prop_breaks.append((pos, eats, code, idx))
+
+        # Tryb inteligentny: program pasuje wyrazy tłumaczenia do wierszy
+        # oryginału i wstawia kod tam, gdzie faktycznie leży ich odpowiednik.
+        # Porównujemy oba układy tym samym kryterium i bierzemy lepszy —
+        # dopasowanie nigdy nie będzie gorsze niż klasyczna proporcja.
+        chosen = prop_breaks
+        if smart and not cjk_text:
+            spans = [mt.span() for mt in _SMART_WORD_RE.finditer(text)]
+            prefix: List[Counter] = [Counter()]
+            for s, e in spans:
+                prefix.append(prefix[-1] + Counter(_norm_words(text[s:e])))
+            line_words = [_norm_words(line) for line, _code in src_par]
+            prop_score = _breaks_score(
+                [(idx, _word_boundary(pos, spans))
+                 for (pos, _eats, _code, idx) in prop_breaks],
+                line_words, prefix, len(spans))
+            sb = _smart_breaks_scored(text, src_par, spans, prefix, line_words)
+            if sb is not None and sb[1] > prop_score + 1e-9:
+                chosen = sb[0]
+
+        breaks = [(pos, eats, code) for (pos, eats, code, _idx) in chosen]
 
         parts: List[str] = []
         start = 0

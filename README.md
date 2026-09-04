@@ -794,6 +794,16 @@ podpowiedź po dopasowaniu:
   auto-detekcja; wypełniona lista = dokładnie te kody (auto-detekcja
   wyłączona). Przycisk **„Auto-wykryj z pliku”** skanuje otwarty projekt
   i wypełnia listę tym, co program rozpoznał w źródłach i tłumaczeniach.
+* **ulepszona lokalizacja przełamania** (włączana osobno, domyślnie ON) —
+  zamiast łamać „po proporcji długości”, program pasuje wyrazy tłumaczenia
+  do wierszy oryginału i wstawia kod tam, gdzie faktycznie leży ich
+  odpowiednik (wygrywa lepszy z dwóch układów, ocenionych tym samym
+  kryterium — nie jest nigdy gorzej niż proporcja).
+* **poprawa podwójnych backslashów** (włączana osobno, domyślnie ON) —
+  niektóre ekstraktyory zapisują kody jako `\\n` zamiast `\n`; przy
+  wczytywaniu pliku program kurczy parzyste serie backslashów przed literą
+  do jednego, więc kody są rozpoznawane, dopasowywane i zapisywane
+  w prawidłowej postaci.
 
 Do segmentów, które już przetłumaczono, służy działanie w siatce: **klik
 prawy → „⇢ Dopasuj znaczniki do oryginału”** (działa na wszystkich

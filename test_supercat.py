@@ -4173,6 +4173,87 @@ Dziękujemy za korzystanie z MYSTERY"""
           SettingsManager.instance().get_str("tm.codes.list") == det_txt)
     SettingsManager.instance().set("tm.codes.list", _prev_cl)
 
+    # --- ulepszona lokalizacja przełamania (po słowach) + fix podwójnych backslashów ---
+    print("\n24h. Ulepszona lokalizacja przełamania (po słowach) + fix podwójnych backslashów")
+    from supercat.core.textutil import fix_doubled_break_codes
+    check("fix: podwójny backslash kurczy się do jednego",
+          fix_doubled_break_codes("a\\\\nb") == "a\\nb",
+          repr(fix_doubled_break_codes("a\\\\nb")))
+    check("fix: pojedynczy backslash nietknięty",
+          fix_doubled_break_codes("a\\nb") == "a\\nb",
+          repr(fix_doubled_break_codes("a\\nb")))
+    check("fix: kilka kodów naraz",
+          fix_doubled_break_codes("x\\\\l y\\\\p z\\n") == "x\\l y\\p z\\n")
+    check("fix: tekst bez backslashów nietknięty",
+          fix_doubled_break_codes("zwykły tekst") == "zwykły tekst")
+
+    # plik z podwójnymi backslashami — poprawiane przy wczytaniu (on/off)
+    _prev_fd = smgr2.get_bool("tm.codes.fix.double", True)
+    dbl_dir = os.path.join(tmp, "dblproj")
+    os.makedirs(dbl_dir, exist_ok=True)
+    dbl_file = os.path.join(dbl_dir, "d.txt")
+    with open(dbl_file, "w", encoding="utf-8") as fh:
+        fh.write("Linia pierwsza\\\\nLinia druga")
+    smgr2.set("tm.codes.fix.double", True)
+    segs_on = parse_file(dbl_file)
+    check("wczytywanie (fix WŁ.): podwójny backslash → pojedynczy",
+          segs_on and segs_on[0].source == "Linia pierwsza\\nLinia druga",
+          repr(segs_on[0].source) if segs_on else "brak")
+    smgr2.set("tm.codes.fix.double", False)
+    segs_off = parse_file(dbl_file)
+    check("wczytywanie (fix WYŁ.): tekst nietknięty",
+          segs_off and segs_off[0].source == "Linia pierwsza\\\\nLinia druga",
+          repr(segs_off[0].source) if segs_off else "brak")
+    smgr2.set("tm.codes.fix.double", _prev_fd)
+
+    # smart: kod tam, gdzie faktycznie leży odpowiednik wiersza oryginału
+    src_w = "stop\\nthe quick brown fox jumps over the lazy dog"
+    tgt_w = "szybki lis i stop i jeszcze cos"
+    ad_ws = adapt_codes(src_w, tgt_w)
+    ad_wp = adapt_codes(src_w, tgt_w, smart=False)
+    check("smart: przełamanie po „stop” (tam, gdzie leży w tłumaczeniu)",
+          "stop\\ni jeszcze" in ad_ws, repr(ad_ws))
+    check("proporcja w tym samym przypadku: zła pozycja (smart to naprawia)",
+          "szybki\\n" in ad_wp, repr(ad_wp))
+    src_w2 = "Linia pierwsza jest dluga ale to jeszcze jej ciag\\nDruga linia jest krutsza"
+    tgt_w2 = "Pierwszy wiersz dlugi a jego ciag dalej\nDrugi wiersz krótszy"
+    ad_ws2 = adapt_codes(src_w2, tgt_w2)
+    check("smart: nie psuje poprawnego podziału",
+          ad_ws2.count("\\n") == 1
+          and _flatten_lines(split_code_structure(ad_ws2)[0]) == tgt_w2, repr(ad_ws2))
+
+    # użytkowski przykład: XLIFF z podwójnymi backslashami w tłumaczeniu
+    xl_dir = os.path.join(tmp, "xldbl")
+    os.makedirs(xl_dir, exist_ok=True)
+    xl_pm = ProjectManager()
+    xl_p = xl_pm.create_project("DblX", "en", "pl", xl_dir)
+    with open(os.path.join(xl_p.source_path, "d.xliff"), "w", encoding="utf-8") as fh:
+        fh.write('<?xml version="1.0" encoding="UTF-8"?>\n'
+                 '<xliff version="1.2"><file original="d" source-language="en" '
+                 'target-language="pl" datatype="plaintext"><body>'
+                 '<trans-unit id="1">'
+                 '<source>A move that leaves the foe badly\\npoisoned. Its poison damage worsens\\nevery turn.</source>'
+                 '<target>Ruch ostro zatruwający\\\\nprzeciwnika.\\\\nObrażenia z trucizny\\rosną co turę.</target>'
+                 '</trans-unit></body></file></xliff>\n')
+    cw5 = MainWindow()
+    cw5.open_project_path(xl_p.project_file_path)
+    cw5.load_source_files(auto=True)
+    xsegs = cw5.editor_tab.segments
+    check("XLIFF: podwójne backslashy w tłumaczeniu poprawione przy wczytaniu",
+          len(xsegs) == 1 and xsegs[0].target.count("\\n") == 2
+          and "\\\\" not in xsegs[0].target,
+          repr(xsegs[0].target) if xsegs else "brak")
+    check("XLIFF: struktura kodów się zgadza (dopasowanie nie rusza tekstu)",
+          xsegs and adapt_codes(xsegs[0].source, xsegs[0].target) == xsegs[0].target)
+
+    # Ustawienia: osobne przełączniki
+    check("ustawienia: osobne przełączniki (ulepszona lokalizacja + fix backslashów)",
+          hasattr(w.settings_tab, "adapt_codes_smart")
+          and hasattr(w.settings_tab, "fix_double_bs"))
+    check("ustawienia: przełączniki domyślnie włączone",
+          w.settings_tab.adapt_codes_smart.isChecked()
+          and w.settings_tab.fix_double_bs.isChecked())
+
     # ---------------------------- Nawigacja klawiszami
     print("\n24b. Strzałki i zaznaczanie w siatce")
     from PyQt6.QtTest import QTest as _QTest

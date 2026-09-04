@@ -27,6 +27,12 @@ DEFAULTS: Dict[str, Any] = {
     #: Lista kodów gry — wklej kod po kodzie (np. \n, \l, {VAR}, <<TAG>>).
     # Jeśli pusta — kody są auto-detekowane z tekstu źródłowego.
     "tm.codes.list": "",
+    #: Ulepszona lokalizacja przełamania: dopasuj wyrazy tłumaczenia do
+    # wierszy oryginału (wyłączenie = klasyczny podział proporcjonalny).
+    "tm.adapt.codes.smart": True,
+    #: Poprawiaj podwójne backslashy przed kodami (\\n -> \n)
+    # przy wczytywaniu plików.
+    "tm.codes.fix.double": True,
     "tm.filter.english": True,
     #: Nie zapisuj do TM wpisów, których tłumaczenie zostało po angielsku.
     "tm.reject.untranslated": False,

@@ -2447,7 +2447,8 @@ class EditorTab(QWidget):
             _line, _para = effective_break_codes(
                 seg.source, _line, _para,
                 extra_codes=_esc, auto_detect=not (_esc or _inl))
-            new_text = adapt_codes(seg.source, seg.target, _line, _para)
+            new_text = adapt_codes(seg.source, seg.target, _line, _para,
+                                 smart=_sm_codes.get_bool("tm.adapt.codes.smart", True))
             if new_text != seg.target:
                 history.append((index, "target", seg.target))
                 seg.target = new_text
