@@ -4,7 +4,7 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QApplication, QCheckBox, QComboBox, QFormLayout, QGridLayout,
+    QAbstractItemView, QApplication, QCheckBox, QColorDialog, QComboBox, QFormLayout, QGridLayout,
     QGroupBox, QHBoxLayout,
     QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
     QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSpinBox, QTableWidget,
@@ -943,9 +943,73 @@ class SettingsTab(QTabWidget):
             "niebieska kropkowana – uwaga. Prawy przycisk myszy pokazuje propozycje."
         )
         self.lang_underline.setChecked(self.settings.get_bool("lang.check.underline", True))
-        self.lang_underline.stateChanged.connect(
-            lambda st: self._set_lang_option("lang.check.underline", bool(st)))
+        self.lang_underline.stateChanged.connect(self._toggle_lang_underline)
         checks_form.addRow(self.lang_underline)
+
+        self.underline_box = QGroupBox("Wygląd podkreślenia w polu tłumaczenia")
+        ul_form = QFormLayout(self.underline_box)
+        self.ul_style = QComboBox()
+        self.ul_style.setMaximumWidth(260)
+        for key, label in (
+            ("wave", "Falka (jak w edytorze tekstu)"),
+            ("solid", "Linia ciągła"),
+            ("dash", "Kreski"),
+            ("dot", "Kropki"),
+            ("spell", "Falka pisowni systemu"),
+        ):
+            self.ul_style.addItem(label, key)
+        saved_style = self.settings.get_str("lang.underline.style", "wave")
+        idx = max(0, self.ul_style.findData(saved_style))
+        self.ul_style.setCurrentIndex(idx)
+        self.ul_style.currentIndexChanged.connect(self._on_underline_style)
+        ul_form.addRow("Styl:", self.ul_style)
+
+        self.ul_thickness = QSpinBox()
+        self.ul_thickness.setRange(1, 8)
+        self.ul_thickness.setSuffix(" px")
+        self.ul_thickness.setMaximumWidth(120)
+        self.ul_thickness.setValue(self.settings.get_int("lang.underline.thickness", 2))
+        self.ul_thickness.setToolTip(
+            "Grubość kreski pod błędem. Falka Qt jest zawsze cienka —\n"
+            "program dorysowuje własną linię o wybranej grubości.")
+        self.ul_thickness.valueChanged.connect(self._on_underline_thickness)
+        ul_form.addRow("Grubość:", self.ul_thickness)
+
+        colors_row = QHBoxLayout()
+        self.ul_error_btn = self._make_underline_color_button(
+            "lang.underline.error.color", "#ff5252", "Błąd")
+        self.ul_warn_btn = self._make_underline_color_button(
+            "lang.underline.warning.color", "#ffa726", "Ostrzeżenie")
+        self.ul_info_btn = self._make_underline_color_button(
+            "lang.underline.info.color", "#64b5f6", "Uwaga")
+        colors_row.addWidget(QLabel("Błąd:"))
+        colors_row.addWidget(self.ul_error_btn)
+        colors_row.addSpacing(8)
+        colors_row.addWidget(QLabel("Ostrzeżenie:"))
+        colors_row.addWidget(self.ul_warn_btn)
+        colors_row.addSpacing(8)
+        colors_row.addWidget(QLabel("Uwaga:"))
+        colors_row.addWidget(self.ul_info_btn)
+        colors_row.addStretch(1)
+        ul_form.addRow("Kolory:", colors_row)
+
+        self.ul_background = QCheckBox("Dodatkowo podświetl tło wyrazu")
+        self.ul_background.setToolTip(
+            "Lekkie tło w kolorze podkreślenia — błąd widać także z daleka.")
+        self.ul_background.setChecked(self.settings.get_bool("lang.underline.background", False))
+        self.ul_background.stateChanged.connect(
+            lambda st: self._set_underline_option("lang.underline.background", bool(st)))
+        ul_form.addRow(self.ul_background)
+
+        ul_hint = QLabel(
+            "Zmiana jest od razu widoczna w polu tłumaczenia "
+            "(czerwona falka przy literówce, grubsza linia przy większej wartości)."
+        )
+        ul_hint.setWordWrap(True)
+        ul_hint.setStyleSheet("color: gray; font-size: 11px;")
+        ul_form.addRow(ul_hint)
+        self.underline_box.setEnabled(self.lang_underline.isChecked())
+        checks_form.addRow(self.underline_box)
 
         self.lang_spelling = QCheckBox("Pisownia (na podstawie wczytanych słowników)")
         self.lang_spelling.setToolTip(
@@ -1129,6 +1193,64 @@ class SettingsTab(QTabWidget):
         if editor is not None and hasattr(editor, "check_language"):
             editor.check_language(force=True)
 
+    def _toggle_lang_underline(self, state) -> None:
+        enabled = bool(state)
+        self.settings.set("lang.check.underline", enabled)
+        if hasattr(self, "underline_box"):
+            self.underline_box.setEnabled(self.lang_master.isChecked() and enabled)
+        self._refresh_lang_underline()
+
+    def _make_underline_color_button(self, key: str, default: str, title: str) -> QPushButton:
+        btn = QPushButton()
+        btn.setFixedSize(64, 28)
+        btn.setToolTip(f"Kliknij, aby zmienić kolor: {title}")
+        btn.setProperty("sc_key", key)
+        btn.setProperty("sc_default", default)
+        self._paint_color_button(btn, self.settings.get_str(key, default) or default)
+        btn.clicked.connect(lambda _=False, b=btn, t=title: self._pick_underline_color(b, t))
+        return btn
+
+    @staticmethod
+    def _paint_color_button(btn: QPushButton, color: str) -> None:
+        btn.setProperty("sc_color", color)
+        btn.setText(color)
+        btn.setStyleSheet(
+            f"QPushButton {{ background: {color}; color: #fff; border: 1px solid #666;"
+            f" border-radius: 4px; padding: 2px 6px; }}"
+        )
+
+    def _pick_underline_color(self, btn: QPushButton, title: str) -> None:
+        current = QColor(btn.property("sc_color") or btn.property("sc_default") or "#ff5252")
+        chosen = QColorDialog.getColor(current, self, f"Kolor podkreślenia — {title}")
+        if not chosen.isValid():
+            return
+        hex_color = chosen.name()
+        self.settings.set(btn.property("sc_key"), hex_color)
+        self._paint_color_button(btn, hex_color)
+        self._refresh_lang_underline()
+
+    def _on_underline_style(self, _index: int) -> None:
+        key = self.ul_style.currentData()
+        if isinstance(key, str) and key:
+            self.settings.set("lang.underline.style", key)
+            self._refresh_lang_underline()
+
+    def _on_underline_thickness(self, value: int) -> None:
+        self.settings.set("lang.underline.thickness", int(value))
+        self._refresh_lang_underline()
+
+    def _set_underline_option(self, key: str, value) -> None:
+        self.settings.set(key, value)
+        self._refresh_lang_underline()
+
+    def _refresh_lang_underline(self) -> None:
+        editor = getattr(self.app, "editor_tab", None)
+        if editor is None:
+            return
+        issues = getattr(editor, "_lang_issues", None) or []
+        if hasattr(editor, "highlight_language_issues"):
+            editor.highlight_language_issues(issues)
+
     def _sync_mt_option(self, key: str, value: bool) -> None:
         """Ustawienie występuje w dwóch zakładkach – utrzymujemy zgodność."""
         self.settings.set(key, value)
@@ -1157,6 +1279,8 @@ class SettingsTab(QTabWidget):
         self.lang_group.setEnabled(on)
         self.lt_group.setEnabled(on)
         self.lt_local_group.setEnabled(on)
+        if hasattr(self, "underline_box"):
+            self.underline_box.setEnabled(on and self.lang_underline.isChecked())
 
     def _set_all_language(self, enabled: bool) -> None:
         """Jeden przycisk włącza/wyłącza wszystkie kontrole językowe."""

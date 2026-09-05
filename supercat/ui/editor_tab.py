@@ -11,8 +11,8 @@ import time as _time
 from typing import List, Optional, Sequence
 
 from PyQt6.QtCore import QEvent, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import (QAction, QBrush, QColor, QFont, QKeySequence, QPalette, QShortcut,
-                         QTextCharFormat, QTextCursor)
+from PyQt6.QtGui import (QAction, QBrush, QColor, QFont, QKeySequence, QPainter, QPainterPath,
+                         QPalette, QPen, QShortcut, QTextCharFormat, QTextCursor)
 from PyQt6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QHBoxLayout,
     QHeaderView, QLabel,
@@ -534,6 +534,51 @@ def _set_whitespace_hint(item: QTableWidgetItem, text: str, cfg: Optional[dict] 
         item.setData(WHITESPACE_ROLE, None)
 
 
+
+_UNDERLINE_STYLES = {
+    "wave": QTextCharFormat.UnderlineStyle.WaveUnderline,
+    "solid": QTextCharFormat.UnderlineStyle.SingleUnderline,
+    "dash": QTextCharFormat.UnderlineStyle.DashUnderline,
+    "dot": QTextCharFormat.UnderlineStyle.DotLine,
+    "spell": QTextCharFormat.UnderlineStyle.SpellCheckUnderline,
+}
+
+
+def language_underline_settings():
+    """Kolor / styl / grubość podkreślenia z Ustawień."""
+    sm = SettingsManager.instance()
+    style = sm.get_str("lang.underline.style", "wave") or "wave"
+    if style not in _UNDERLINE_STYLES:
+        style = "wave"
+    thickness = sm.get_int("lang.underline.thickness", 2)
+    thickness = max(1, min(8, thickness))
+    colors = {
+        "błąd": sm.get_str("lang.underline.error.color", "#ff5252") or "#ff5252",
+        "ostrzeżenie": sm.get_str("lang.underline.warning.color", "#ffa726") or "#ffa726",
+        "info": sm.get_str("lang.underline.info.color", "#64b5f6") or "#64b5f6",
+    }
+    return {
+        "style": style,
+        "qt_style": _UNDERLINE_STYLES[style],
+        "thickness": thickness,
+        "colors": colors,
+        "background": sm.get_bool("lang.underline.background", False),
+        "enabled": sm.get_bool("lang.check.underline", True),
+    }
+
+
+class TargetEdit(QPlainTextEdit):
+    """Pole tłumaczenia — potrafi narysować grubszą falkę niż ExtraSelections."""
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        super().paintEvent(event)
+        tab = self.parent()
+        while tab is not None and not hasattr(tab, "_paint_language_underlines"):
+            tab = tab.parent()
+        if tab is not None:
+            tab._paint_language_underlines(self)
+
+
 class EditorTab(QWidget):
     """Główna zakładka pracy tłumacza."""
 
@@ -830,7 +875,7 @@ class EditorTab(QWidget):
         # lista musi to pokazać, inaczej wprowadza w błąd.
         self.app.mt.add_engine_listener(lambda _e: self.reload_engine_picker())
 
-        self.target_edit = QPlainTextEdit()
+        self.target_edit = TargetEdit()
         self.target_edit.setPlaceholderText("Tutaj wpisz tłumaczenie…  (Ctrl+Enter = zatwierdź i dalej)")
         self.target_edit.textChanged.connect(self._on_target_changed)
         self.target_edit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -3993,36 +4038,40 @@ class EditorTab(QWidget):
         na liście obok i trudno było znaleźć, którego wyrazu dotyczą.
         """
         self._lang_selections = []
-        if not SettingsManager.instance().get_bool("lang.check.underline", True):
+        opts = language_underline_settings()
+        if not opts["enabled"]:
             self._apply_target_selections()
+            if hasattr(self, "target_edit"):
+                self.target_edit.viewport().update()
             return
 
-        text = self.target_edit.toPlainText()
-        styles = {
-            "błąd": ("#ff5252", QTextCharFormat.UnderlineStyle.WaveUnderline),
-            "ostrzeżenie": ("#ffa726", QTextCharFormat.UnderlineStyle.WaveUnderline),
-            "info": ("#64b5f6", QTextCharFormat.UnderlineStyle.DotLine),
-        }
+        body = self.target_edit.toPlainText()
         for issue in issues or []:
             start, length = issue.offset, issue.length
             if start < 0 or length <= 0:
                 # Uwagi bez pozycji (np. pisownia ze słownika) – znajdź wyraz w tekście.
                 if not issue.fragment:
                     continue
-                found = re.search(rf"(?<!\w){re.escape(issue.fragment)}(?!\w)", text)
+                found = re.search(rf"(?<!\w){re.escape(issue.fragment)}(?!\w)", body)
                 if not found:
                     continue
                 start, length = found.start(), found.end() - found.start()
-            if start + length > len(text):
+            if start + length > len(body):
                 continue
-            color, style = styles.get(issue.severity, styles["info"])
+            color = opts["colors"].get(issue.severity, opts["colors"]["info"])
             fmt = QTextCharFormat()
-            fmt.setUnderlineStyle(style)
+            # ExtraSelections: falka Qt (testy / dymki). Grubość rysujemy sami.
+            fmt.setUnderlineStyle(opts["qt_style"])
             fmt.setUnderlineColor(QColor(color))
             fmt.setToolTip(issue.describe())
+            if opts["background"]:
+                bg = QColor(color)
+                bg.setAlpha(55)
+                fmt.setBackground(bg)
             self._lang_selections.append(
                 self._selection(self.target_edit, start, start + length, fmt))
         self._apply_target_selections()
+        self.target_edit.viewport().update()
 
     def _on_suggestions_ready(self, index: int, issues: list) -> None:
         """Uzupełnia listę uwag o doliczone w tle propozycje."""
@@ -4044,6 +4093,96 @@ class EditorTab(QWidget):
         """Zdejmuje podkreślenia błędów językowych z pola tłumaczenia."""
         self._lang_selections = []
         self._apply_target_selections()
+        if hasattr(self, "target_edit"):
+            self.target_edit.viewport().update()
+
+    def _paint_language_underlines(self, editor: QPlainTextEdit) -> None:
+        """Rysuje podkreślenie o wybranej grubości (falka Qt jest zawsze cienka)."""
+        opts = language_underline_settings()
+        if not opts["enabled"] or opts["thickness"] < 1:
+            return
+        issues = getattr(self, "_lang_issues", None) or []
+        if not issues:
+            return
+        body = editor.toPlainText()
+        painter = QPainter(editor.viewport())
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        thickness = opts["thickness"]
+        style = opts["style"]
+        for issue in issues:
+            start, length = issue.offset, issue.length
+            if start < 0 or length <= 0:
+                if not issue.fragment:
+                    continue
+                found = re.search(rf"(?<!\w){re.escape(issue.fragment)}(?!\w)", body)
+                if not found:
+                    continue
+                start, length = found.start(), found.end() - found.start()
+            end = start + length
+            if start < 0 or end > len(body) or start >= end:
+                continue
+            color = opts["colors"].get(issue.severity, opts["colors"]["info"])
+            self._paint_range_underline(editor, painter, start, end, color, thickness, style)
+        painter.end()
+
+    def _paint_range_underline(self, editor, painter, start: int, end: int,
+                               color: str, thickness: int, style: str) -> None:
+        document = editor.document()
+        block = document.findBlock(start)
+        offset = editor.contentOffset()
+        while block.isValid() and block.position() < end:
+            layout = block.layout()
+            if layout is None:
+                block = block.next()
+                continue
+            block_pos = block.position()
+            origin = editor.blockBoundingGeometry(block).translated(offset).topLeft()
+            local_start = max(0, start - block_pos)
+            local_end = min(block.length() - 1, end - block_pos)
+            for line_index in range(layout.lineCount()):
+                line = layout.lineAt(line_index)
+                ls = line.textStart()
+                ll = line.textLength()
+                a = max(local_start, ls)
+                b = min(local_end, ls + ll)
+                if a >= b:
+                    continue
+                x1 = origin.x() + line.cursorToX(a)
+                x2 = origin.x() + line.cursorToX(b)
+                y = origin.y() + line.y() + line.height() - max(2, thickness)
+                self._stroke_underline(painter, x1, x2, y, color, thickness, style)
+            block = block.next()
+
+    @staticmethod
+    def _stroke_underline(painter, x1, x2, y, color: str, thickness: int, style: str) -> None:
+        if x2 - x1 < 1:
+            return
+        pen = QPen(QColor(color), float(max(1, thickness)))
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        if style == "dash":
+            pen.setStyle(Qt.PenStyle.DashLine)
+        elif style == "dot":
+            pen.setStyle(Qt.PenStyle.DotLine)
+        else:
+            pen.setStyle(Qt.PenStyle.SolidLine)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        if style == "wave":
+            amp = max(2.0, thickness * 1.15)
+            step = max(3.5, thickness * 2.2)
+            path = QPainterPath()
+            path.moveTo(x1, y)
+            x = float(x1)
+            sign = 1
+            while x < x2:
+                nx = min(float(x2), x + step)
+                path.quadTo((x + nx) / 2, y + sign * amp, nx, y)
+                x = nx
+                sign *= -1
+            painter.drawPath(path)
+        else:
+            painter.drawLine(int(x1), int(y), int(x2), int(y))
 
     def _target_context_menu(self, pos) -> None:
         """Prawy przycisk w polu tłumaczenia – propozycje poprawek dla wyrazu."""

@@ -54,6 +54,14 @@ DEFAULTS: Dict[str, Any] = {
     #: Ostatni segment, na którym skończono pracę — osobno dla każdego pliku
     # (JSON: {nazwa_pliku: numer_segmentu}). Program wraca do tego miejsca.
     "editor.last.segment": "{}",
+    #: Wygląd podkreślenia błędów w polu tłumaczenia.
+    "lang.check.underline": True,
+    "lang.underline.error.color": "#ff5252",
+    "lang.underline.warning.color": "#ffa726",
+    "lang.underline.info.color": "#64b5f6",
+    "lang.underline.style": "wave",
+    "lang.underline.thickness": 2,
+    "lang.underline.background": False,
     #: Układ paneli po prawej: "stacked" (wszystko naraz) lub "tabs" (zakładki).
     "tm.panel.layout": "stacked",
     #: Które panele po prawej w ogóle pokazywać.

@@ -1536,6 +1536,44 @@ Dziękujemy za korzystanie z MYSTERY"""
     check("podkreślanie można wyłączyć",
           w.editor_tab._lang_selections == [])
     SettingsManager.instance().set("lang.check.underline", True)
+    w.editor_tab.highlight_language_issues(w.editor_tab._lang_issues)
+
+    # --- wygląd podkreślenia (kolor, grubość, styl) z Ustawień -----------
+    st_ul = w.settings_tab
+    check("ustawienia: są sterowniki wyglądu podkreślenia",
+          hasattr(st_ul, "ul_thickness") and hasattr(st_ul, "ul_style")
+          and hasattr(st_ul, "ul_error_btn") and hasattr(st_ul, "underline_box"))
+    check("ustawienia: domyślna grubość podkreślenia",
+          st_ul.ul_thickness.value() >= 1, str(st_ul.ul_thickness.value()))
+    SettingsManager.instance().set("lang.underline.error.color", "#00aa00")
+    SettingsManager.instance().set("lang.underline.style", "solid")
+    SettingsManager.instance().set("lang.underline.thickness", 5)
+    SettingsManager.instance().set("lang.underline.background", True)
+    w.editor_tab.highlight_language_issues(w.editor_tab._lang_issues)
+    _ul_fmts = [sel.format for sel in w.editor_tab.target_edit.extraSelections()
+                if sel.format.underlineColor().name() != "#000000"
+                or sel.format.hasProperty(sel.format.Property.UnderlineColor)]
+    # extraSelections mieszają też inne podświetlenia – szukamy zielonego
+    _green = [sel.format for sel in w.editor_tab.target_edit.extraSelections()
+              if sel.format.underlineColor().name() == "#00aa00"]
+    check("ustawienia: kolor podkreślenia błędu da się zmienić",
+          bool(_green), str([sel.format.underlineColor().name()
+                             for sel in w.editor_tab.target_edit.extraSelections()]))
+    check("ustawienia: styl linia ciągła",
+          bool(_green) and _green[0].underlineStyle().name == "SingleUnderline",
+          _green[0].underlineStyle().name if _green else "brak")
+    check("ustawienia: tło wyrazu przy podkreśleniu",
+          bool(_green) and _green[0].background().color().alpha() > 0)
+    check("ustawienia: grubość zapisana",
+          SettingsManager.instance().get_int("lang.underline.thickness", 0) == 5)
+    st_ul.ul_thickness.setValue(3)
+    check("ustawienia: spinbox grubości zapisuje wartość",
+          SettingsManager.instance().get_int("lang.underline.thickness", 0) == 3)
+    SettingsManager.instance().set("lang.underline.error.color", "#ff5252")
+    SettingsManager.instance().set("lang.underline.style", "wave")
+    SettingsManager.instance().set("lang.underline.thickness", 2)
+    SettingsManager.instance().set("lang.underline.background", False)
+    w.editor_tab.highlight_language_issues(w.editor_tab._lang_issues)
 
     # główny wyłącznik kontroli języka
     SettingsManager.instance().set("lang.check.enabled", False)
