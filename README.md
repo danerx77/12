@@ -646,18 +646,22 @@ oznacza wynik jako niepełny:
 
 Propozycje nie są usuwane — bywają przydatne jako podpowiedź samego terminu.
 
-### Znaczniki nie giną z propozycji
+### Propozycja jest czystym tekstem — bez znaczników z pliku
 
-Segment rzadko jest gołym zdaniem — na końcu bywa znacznik gry (`<<kon>>`, `{PLAYER}`,
-`{STR_VAR_1}`), a wpis w pamięci jest bez niego. Wtedy propozycja traciła znacznik
-i wstawienie jej psuło plik:
+Segment rzadko jest gołym zdaniem — na końcu bywa znacznik gry (`<<kon>>`), którego
+**nie ma w tekście oryginalnym**. Propozycja go nie dostaje:
 
 ```segment:     when we decided to have 1 room.<<kon>>
-dawniej:      gdy zdecydowaliśmy mieć 1 salę.            ← «<<kon>>» przepadło
-teraz:        gdy zdecydowaliśmy mieć 1 salę.<<kon>>```
+propozycja:   gdy zdecydowaliśmy mieć 1 salę.           ← czysty tekst```
 
-Znaczniki stojące na brzegu dopasowanego fragmentu są teraz **doklejane do propozycji**
-(helper `preserve_edge_codes`, wszystkie ścieżki dopasowania). Dodatkowo:
+* na ekranie znaczniki (`<<kon>>`, `{PLAYER}`) i tak są ukryte — widać sam tekst,
+  a pełną wersję po najechaniu myszą,
+* z propozycji usuwane są znaczniki w podwójnych ostrokątach (`<<…>>`), których
+  nie ma w tłumaczeniu z TM — wszystkie ścieżki dopasowania,
+* **zostają** zmienne `{STR_VAR_1}` i kody wiersza `\n`, `\p` — niosą treść
+  i są dopasowywane do oryginału.
+
+Dodatkowo:
 
 * ten sam tekst nie pojawia się **dwa razy** (osobno ze ścieżki dokładnej i rozmytej),
 * propozycja z przełamanego segmentu dostaje przełamanie z powrotem,
@@ -673,6 +677,62 @@ podpowiedzi po najechaniu myszą na pozycję.
 Dodatkowo odrzucane są dopasowania „z niczego”: jeśli jedyną wspólną rzeczą
 między segmentem a wpisem pamięci jest cyfra (segment „…mieć **1** salę.” wobec
 wpisu „just **one** / tylko **1**”), taka propozycja w ogóle się nie pojawia.
+
+### Skróty klawiszowe a polskie znaki
+
+Na polskiej klawiaturze `AltGr` + litera daje polski znak (ę, ś, ń, ó, ł, ż, ź, ć, ą),
+a Qt widzi to jako **Ctrl+Alt+litera**. Każdy taki skrót programu „zjadał” wpisywane
+litery — `Ctrl+Alt+E` zamiast „ę” otwierał edytor TMX.
+
+Dlatego **żaden domyślny skrót nie używa już Alt z literą**; dziesięć poleceń
+przeniesiono na `Ctrl+Shift+…`:
+
+| Polecenie | Dawniej | Teraz |
+|---|---|---|
+| Poprzedni nieprzetłumaczony | Ctrl+Alt+U | Ctrl+Shift+U |
+| Następny przetłumaczony | Ctrl+Shift+U | Ctrl+Shift+Y |
+| Następny niezatwierdzony | Ctrl+Alt+N | Ctrl+Shift+A |
+| Przywróć wcięcie | Ctrl+Alt+W | Ctrl+Shift+W |
+| Następny „do przetłumaczenia” | Ctrl+Alt+T | Ctrl+Shift+G |
+| Szukaj w tym pliku | Ctrl+Alt+F | Ctrl+Shift+E |
+| Sprawdź język | Ctrl+Alt+J | Ctrl+Shift+J |
+| QuickTrans | Ctrl+Alt+Q | Ctrl+Shift+Q |
+| Edytor TMX | Ctrl+Alt+E | Ctrl+Shift+X |
+| Kopiuj pomiar czasu | Ctrl+Alt+T | Ctrl+Shift+P |
+
+Gdy sam ustawisz skrót z Alt i literą (Ustawienia → Skróty), program ostrzeże, że
+taka kombinacja blokuje polskie znaki.
+
+### Odstępy przy kodach wiersza
+
+Wpis w pamięci bywa zapisany z odstępem przed przełamaniem, którego nie ma
+w oryginale — po wstawieniu spacja zostaje i psuje tekst w grze:
+
+```oryginał:   …even a crash with a jet\nplane won't leave a scratch.
+wpis w TM:  …że nawet \nzderzenie nie pozostawi zadrapania.
+                      ^ spacja, której nie ma w oryginale
+po wstawieniu: …że nawet\nzderzenie nie pozostawi zadrapania.```
+
+Program przycina odstępy przy kodach tak, żeby zgadzały się z oryginałem (spacja
+znika tylko wtedy, gdy w oryginale też jej nie ma). **Wyłącznik:** ustawienie
+`tm.adapt.break.spaces` (domyślnie włączone).
+
+### Słownik z odmianą
+
+`pl_PL.dic` (LibreOffice) zawiera wyłącznie **formy podstawowe** — bez reguł
+odmiany poprawne słowa (`ofiarę`, `zamrozić`, `jeźdząc`, `chmurę`) są zgłaszane
+jako błędy. Działają dwa sposoby:
+
+1. **„polski – pełna odmiana, 4,5 mln form (SJP.pl) ★ zalecany”** — zakładka
+   *📖 Słowniki → ⬇ Pobierz słownik…*. Lista ma wszystkie formy wypisane wprost,
+   więc działa nawet bez Hunspella.
+2. **Silnik Hunspell** — wymaga biblioteki `spylls` (`pip install spylls`) i pliku
+   `.aff` obok `.dic`; program pobiera go automatycznie razem ze słownikiem.
+
+Zakładka *Słowniki* pokazuje od razu, z czym pracujesz: „✅ pełna odmiana
+(Hunspell: pl_PL.dic)”, „✅ pełna odmiana (lista zawiera formy odmienione)” albo
+„⚠️ tylko formy podstawowe – poprawne słowa („ofiarę”, „zamrozić”, „jeźdząc”)
+będą zgłaszane jako błędy”.
 
 ### Oznaczenie „do przetłumaczenia” i powrót do miejsca pracy
 

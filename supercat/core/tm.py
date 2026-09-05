@@ -1093,9 +1093,6 @@ class TranslationMemory:
         found: List[SentenceMatch] = []
         for start, end, db_source, db_target in hits:
             shown_target = self.adapt_case_to_source(haystack[start:end], db_target)
-            # Znacznik na brzegu fragmentu (np. „<<kon>>”) musi przeżyć
-            # podmianę, nawet gdy wpis pamięci go nie ma.
-            shown_target = preserve_edge_codes(haystack[start:end], shown_target)
             assembled = _wrap(haystack[:start] + shown_target + haystack[end:])
             coverage = int(round((end - start) * 100 / max(len(haystack), 1)))
             found.append(SentenceMatch(db_source, db_target, assembled, coverage))
@@ -1115,7 +1112,6 @@ class TranslationMemory:
                 parts_tgt: List[str] = []
                 for start, end, src, tgt in sorted(chosen, key=lambda h: -h[0]):
                     shown_tgt = self.adapt_case_to_source(haystack[start:end], tgt)
-                    shown_tgt = preserve_edge_codes(haystack[start:end], shown_tgt)
                     combined = combined[:start] + shown_tgt + combined[end:]
                     covered += end - start
                     parts_src.append(src)
@@ -1153,6 +1149,10 @@ class TranslationMemory:
         # Oznaczamy je i spychamy na koniec listy — bez usuwania, bo bywają
         # użyteczne jako podpowiedź terminu.
         for match in found:
+            # Znacznik końca (<<kon>>) bywa w pliku, ale nie w tekście
+            # oryginalnym — nie ma go w propozycji do wstawienia.
+            match.assembled = strip_foreign_codes(match.assembled,
+                                                  match.fragment_target)
             match.partial = _leaves_source_text(segment, match.assembled,
                                                 match.fragment_target)
         found.sort(key=lambda m: (m.partial, -m.coverage))
@@ -1334,10 +1334,8 @@ class TranslationMemory:
             # Wielkość liter dopasowujemy do linii oryginału (TM trzyma np.
             # „ABILITY → ZDOLNOŚ”, a segment ma „ability”).
             shown_line = self.adapt_line_case(seg_line, tgt_line)
-            # Znacznik z brzegu linii („<<kon>>”, „{PLAYER}”) wraca na miejsce,
-            # nawet gdy wpis pamięci jest bez niego — inaczej propozycja
-            # do wstawienia była niepełna i psuła plik.
-            shown_line = preserve_edge_codes(seg_line, shown_line)
+            # Znaczników z segmentu NIE dokładamy: w propozycji ma być to,
+            # co jest w pamięci TM (a nie kod, którego nie ma w tekście EN).
             # Uwaga: bez wrap_to_source_widths. Segment z przełamaniem i tak
             # zostaje nietknięty (oryginał ma kody), a dla pojedynczej linii
             # dokładanie znacznika końca wiersza psuło poprawne propozycje
@@ -1671,6 +1669,28 @@ def _covers_enough(seg_words: set, candidate: str, segment_line: str) -> bool:
     return len(seg_words) < 2 or covered / len(seg_words) >= _MIN_LINE_WORD_COVERAGE
 
 
+def strip_foreign_codes(assembled: str, tm_translation: str) -> str:
+    """Usuwa z propozycji znaczniki, których NIE MA w tłumaczeniu z TM.
+
+    Segment bywa zakończony znacznikiem gry (``<<kon>>``), którego nie ma
+    w tekście oryginalnym — propozycja ma być czystym tekstem do wstawienia,
+    więc taki znacznik wyrzucamy.
+
+    Dotyczy to WYŁĄCZNIE znaczników w podwójnych ostrokątach. Zmienne
+    ``{STR_VAR_1}`` i kody wiersza (``\\n``, ``\\p``) zostają zawsze — niosą
+    treść i są potem dopasowywane do oryginału, więc ich usunięcie
+    zniszczyłoby poprawny tekst.
+    """
+    if not assembled:
+        return assembled
+    allowed = set(_SEGMENT_TAG_RE.findall(tm_translation or ""))
+
+    def _keep(match: "re.Match") -> str:
+        code = match.group()
+        return code if code in allowed else ""
+
+    return _SEGMENT_TAG_RE.sub(_keep, assembled)
+
 def strip_codes_for_display(text: Optional[str]) -> str:
     """Tekst do POKAZANIA w panelu — bez znaczników (<<kon>>, {PLAYER}, <b>).
 
@@ -1707,6 +1727,9 @@ def wrap_to_source_widths(source: str, assembled: Optional[str]) -> Optional[str
 
 #: Znaczniki „inline” (nie przełamania): <<KON>>, {PLAYER}, <b>, <color=…>.
 _INLINE_CODE_RE = re.compile(r"<<[^<>]*>>|\{[^{}]*\}|<[a-zA-Z/][^<>]*>")
+#: Tylko znaczniki w podwójnych ostrokątach (<<kon>>, <<KON>>) — te mogą
+#: być usunięte z propozycji. Zmienne {VAR} i kody \\n / \\p — NIE.
+_SEGMENT_TAG_RE = re.compile(r"<<[^<>]*>>")
 
 
 def edge_inline_codes(text: str) -> Tuple[str, str]:

@@ -491,6 +491,26 @@ class Dictionary:
         """True, gdy działa pełna kontrola odmiany (a nie sama lista wyrazów)."""
         return getattr(self, "_hunspell", None) is not None
 
+    #: Formy, których NIE MA w słowniku samych form podstawowych. Jeśli
+    #: słownik je zna, znaczy że zawiera odmiany (albo działa Hunspell).
+    _INFLECTION_PROBE = ("ofiarę", "zamrozić", "jeźdząc", "chmurę", "dziękujemy")
+
+    def has_inflected_forms(self) -> bool:
+        """Czy słownik zna formy odmienione, a nie tylko podstawowe.
+
+        Sam rozmiar bywa mylący (duża lista terminów z gry też ma dużo słów),
+        więc sprawdzamy wprost kilka poprawnych polskich form: „ofiarę”,
+        „zamrozić”, „jeźdząc”, „chmurę”. Gdy ich nie ma, sprawdzanie pisowni
+        zgłasza poprawne słowa jako błędy.
+        """
+        if self.has_morphology:
+            return True
+        if not self.words:
+            return False
+        known = sum(1 for word in self._INFLECTION_PROBE
+                    if self.is_correct(word))
+        return known >= 3
+
     def is_correct(self, word: str) -> bool:
         w = word.strip()
         if not w or not any(ch.isalpha() for ch in w):

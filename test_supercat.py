@@ -6051,14 +6051,14 @@ Dziękujemy za korzystanie z MYSTERY"""
     _tm28.add("The room is ready.", "Pokój jest gotowy.", "en", "pl")
     smgr2.set("tm.sentence.matching.enabled", True)
     _res28 = _tm28.find_sentence_matches("when we decided to have 1 room.<<kon>>")
-    check("zdania: znacznik <<kon>> nie ginie z propozycji",
-          bool(_res28) and _res28[0].assembled.endswith("<<kon>>"),
+    check("zdania: propozycja jest bez znacznika, którego nie ma w TM",
+          bool(_res28) and "<<kon>>" not in _res28[0].assembled,
           str([m.assembled for m in _res28]))
     check("zdania: ta sama propozycja nie pojawia się dwa razy",
           len({m.assembled for m in _res28}) == len(_res28),
           str([m.assembled for m in _res28]))
-    check("zdania: nie ma wersji bez znacznika obok wersji z nim",
-          all("<<kon>>" in m.assembled for m in _res28) or not _res28,
+    check("zdania: żadna propozycja nie dokłada <<kon>> z segmentu",
+          all("<<kon>>" not in m.assembled for m in _res28) or not _res28,
           str([m.assembled for m in _res28]))
     _res28b = _tm28.find_sentence_matches("The room\\nis ready.")
     check("zdania: resztki tekstu źródłowego dostają ostrzeżenie (partial)",
@@ -6067,10 +6067,10 @@ Dziękujemy za korzystanie z MYSTERY"""
     check("zdania: pełna propozycja jest przed tymi z resztkami",
           bool(_res28b) and not _res28b[0].partial,
           str([(m.assembled, m.partial) for m in _res28b]))
-    check("zdania: helper dokleja znacznik z brzegu",
+    check("zdania: helper dokleja znacznik z brzegu (gdyby był potrzebny)",
           _keep_codes28("salę.<<kon>>", "1 room.") == "1 room.<<kon>>",
           _keep_codes28("salę.<<kon>>", "1 room."))
-    check("zdania: znacznik już obecny nie jest dublowany",
+    check("helper nie dubluje znacznika, który już jest",
           _keep_codes28("salę.<<kon>>", "1 room.<<kon>>") == "1 room.<<kon>>",
           _keep_codes28("salę.<<kon>>", "1 room.<<kon>>"))
     smgr2.set("tm.sentence.matching.enabled", _sm_sent28)
@@ -6150,6 +6150,50 @@ Dziękujemy za korzystanie z MYSTERY"""
     check("podgląd usuwa też {ZMIENNE}",
           _clean28("Witaj, {PLAYER}!<<kon>>") == "Witaj, !",
           _clean28("Witaj, {PLAYER}!<<kon>>"))
+
+    # --- skróty nie mogą blokować polskich znaków (AltGr = Ctrl+Alt) ---
+    print("\n28d. Skróty, spacje przy kodach, odmiana w słowniku")
+    from supercat.core import shortcuts as _sc28
+    from supercat.core.tags import normalize_break_spaces as _fix_spaces
+
+    _polish_suffixes = ("+A", "+C", "+E", "+L", "+N", "+O", "+S", "+X", "+Z")
+    _blocking = [s.default for s in _sc28.SHORTCUTS
+                 if any(s.default.upper().endswith(suf) for suf in _polish_suffixes)
+                 and "Alt" in s.default]
+    check("skróty: żaden domyślny nie używa Alt z polską literą",
+          not _blocking, str(_blocking))
+    check("skróty: helper wykrywa kombinację AltGr",
+          _sc28.blocks_polish_letters("Ctrl+Alt+S")
+          and _sc28.blocks_polish_letters("Alt+E")
+          and not _sc28.blocks_polish_letters("Ctrl+Shift+U")
+          and not _sc28.blocks_polish_letters("F5"))
+
+    _en28 = ("It floats midair using magnetism. Its body\\nis so tough, "
+             "even a crash with a jet\\nplane won't leave a scratch.")
+    _pl28 = ("Lata w powietrzu za pomocą magnetyzmu.\\nJego ciało jest mocne, "
+             "że nawet \\nzderzenie nie pozostawi zadrapania.")
+    check("kody: spacja przed \\n znika, gdy w oryginale jej nie ma",
+          "nawet \\n" not in _fix_spaces(_en28, _pl28)
+          and "nawet\\n" in _fix_spaces(_en28, _pl28),
+          repr(_fix_spaces(_en28, _pl28)[-45:]))
+    check("kody: spacja zostaje, gdy oryginał też ją ma",
+          _fix_spaces("with a jet \\nplane", "nawet \\nzderzenie")
+          == "nawet \\nzderzenie",
+          repr(_fix_spaces("with a jet \\nplane", "nawet \\nzderzenie")))
+    smgr2.set("tm.adapt.break.spaces", False)
+    from supercat.core.tags import trim_break_spaces as _trim28
+    check("kody: wyłącznik zostawia tekst bez zmian",
+          _trim28(_en28, _pl28) == _pl28)
+    smgr2.set("tm.adapt.break.spaces", True)
+
+    from supercat.core.glossary import Dictionary as _Dict28
+    _d28 = _Dict28()
+    _d28.words = {"ofiara", "zamrozic", "dom"}      # same formy podstawowe
+    check("słownik: lista bez odmian jest rozpoznawana",
+          not _d28.has_inflected_forms())
+    _d28.words |= {"ofiarę", "zamrozić", "jeźdząc", "chmurę"}
+    check("słownik: lista z odmianami jest rozpoznawana",
+          _d28.has_inflected_forms())
 
     # ------------------------------------------------------------ podsumowanie
     print("\n" + "=" * 60)

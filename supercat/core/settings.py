@@ -36,6 +36,9 @@ DEFAULTS: Dict[str, Any] = {
     #: Doklejaj kod wiersza, gdy tłumaczenie jest dłuższe niż
     # najdłuższa linia oryginału (oryginał bez kodów).
     "tm.adapt.long.lines": True,
+    #: Ucinaj odstępy przy kodach wiersza, których nie ma w oryginale
+    # (wpis „...nawet \nzderzenie” wobec oryginału „...a jet\nplane”).
+    "tm.adapt.break.spaces": True,
     #: Wielkość czcionki paneli po prawej (TM / zdania / terminy);
     # 0 = czcionka domyślna aplikacji.
     "tm.panel.font.size": 0,

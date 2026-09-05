@@ -266,12 +266,13 @@ class DictionaryTab(QWidget):
         if d.is_initialized:
             if d.has_morphology:
                 engine = f"✅ pełna odmiana (Hunspell: {d.hunspell_source})"
-            elif d.size >= 1_000_000:
+            elif d.has_inflected_forms():
                 # Lista SJP.pl ma już wszystkie formy odmienione wypisane wprost.
                 engine = "✅ pełna odmiana (lista zawiera formy odmienione)"
             else:
-                engine = ("⚠️ tylko formy podstawowe – pobierz „polski – pełna odmiana” "
-                          "albo dodaj plik .aff")
+                engine = ("⚠️ tylko formy podstawowe – poprawne słowa („ofiarę”, "
+                          "„zamrozić”, „jeźdząc”) będą zgłaszane jako błędy. "
+                          "Pobierz „polski – pełna odmiana (SJP.pl)”.")
             self.info.setText(
                 f"Słowniki: {d.size} słów • plików: {len(d.sources)} • {engine}")
         elif folder:

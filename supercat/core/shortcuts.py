@@ -43,9 +43,9 @@ SHORTCUTS: List[ShortcutDef] = [
     ShortcutDef("next_segment", "Ctrl+PgDown", "Następny segment", "Nawigacja"),
     ShortcutDef("prev_segment", "Ctrl+PgUp", "Poprzedni segment", "Nawigacja"),
     ShortcutDef("next_untranslated", "Ctrl+U", "Następny nieprzetłumaczony", "Nawigacja"),
-    ShortcutDef("prev_untranslated", "Ctrl+Alt+U", "Poprzedni nieprzetłumaczony", "Nawigacja"),
-    ShortcutDef("next_translated", "Ctrl+Shift+U", "Następny przetłumaczony", "Nawigacja"),
-    ShortcutDef("next_unapproved", "Ctrl+Alt+N", "Następny niezatwierdzony", "Nawigacja"),
+    ShortcutDef("prev_untranslated", "Ctrl+Shift+U", "Poprzedni nieprzetłumaczony", "Nawigacja"),
+    ShortcutDef("next_translated", "Ctrl+Shift+Y", "Następny przetłumaczony", "Nawigacja"),
+    ShortcutDef("next_unapproved", "Ctrl+Shift+A", "Następny niezatwierdzony", "Nawigacja"),
     ShortcutDef("first_segment", "Ctrl+Home", "Pierwszy segment", "Nawigacja"),
     ShortcutDef("last_segment", "Ctrl+End", "Ostatni segment", "Nawigacja"),
 
@@ -57,14 +57,14 @@ SHORTCUTS: List[ShortcutDef] = [
     ShortcutDef("insert_match", "Ctrl+Space", "Wstaw najlepsze dopasowanie TM", "Tłumaczenie"),
     ShortcutDef("machine_translate", "Ctrl+M", "Tłumaczenie maszynowe segmentu", "Tłumaczenie"),
     ShortcutDef("save_to_tm", "Ctrl+Shift+S", "Zapisz segment do pamięci TM", "Tłumaczenie"),
-    ShortcutDef("restore_indent", "Ctrl+Alt+W", "Przywróć wcięcie ze źródła", "Tłumaczenie"),
+    ShortcutDef("restore_indent", "Ctrl+Shift+W", "Przywróć wcięcie ze źródła", "Tłumaczenie"),
 
     # --- oznaczenia ---
     ShortcutDef("mark_new", "Ctrl+Shift+1", "Oznacz jako nowy", "Oznaczenia"),
     ShortcutDef("mark_draft", "Ctrl+Shift+2", "Oznacz jako roboczy", "Oznaczenia"),
     ShortcutDef("mark_todo", "Ctrl+Shift+T", "Oznacz jako „do przetłumaczenia”", "Oznaczenia"),
     ShortcutDef("mark_translated", "Ctrl+Shift+3", "Oznacz jako przetłumaczony", "Oznaczenia"),
-    ShortcutDef("next_todo", "Ctrl+Alt+T", "Następny „do przetłumaczenia”", "Nawigacja"),
+    ShortcutDef("next_todo", "Ctrl+Shift+G", "Następny „do przetłumaczenia”", "Nawigacja"),
     ShortcutDef("mark_approved", "Ctrl+Shift+4", "Oznacz jako zatwierdzony", "Oznaczenia"),
     ShortcutDef("ignore_selected", "Ctrl+Shift+I", "Pomiń zaznaczone segmenty", "Oznaczenia"),
     ShortcutDef("restore_selected", "Ctrl+Shift+R", "Przywróć zaznaczone segmenty", "Oznaczenia"),
@@ -72,18 +72,37 @@ SHORTCUTS: List[ShortcutDef] = [
     # --- narzędzia ---
     ShortcutDef("find_replace", "Ctrl+F", "Znajdź i zamień", "Narzędzia", editor=False),
     ShortcutDef("find_selected", "Ctrl+Shift+F", "Szukaj zaznaczonego wyrazu", "Narzędzia"),
-    ShortcutDef("find_in_file", "Ctrl+Alt+F", "Szukaj w bieżącym pliku", "Narzędzia"),
+    ShortcutDef("find_in_file", "Ctrl+Shift+E", "Szukaj w bieżącym pliku", "Narzędzia"),
     ShortcutDef("next_result", "F3", "Następny wynik wyszukiwania", "Narzędzia"),
     ShortcutDef("prev_result", "Shift+F3", "Poprzedni wynik wyszukiwania", "Narzędzia"),
-    ShortcutDef("check_language", "Ctrl+Alt+J", "Sprawdź poprawność języka", "Narzędzia"),
-    ShortcutDef("quicktrans", "Ctrl+Alt+Q", "QuickTrans – porównanie silników", "Narzędzia", editor=False),
-    ShortcutDef("tmx_editor", "Ctrl+Alt+E", "Edytor pamięci TMX", "Narzędzia", editor=False),
-    ShortcutDef("copy_timing", "Ctrl+Alt+T", "Kopiuj pomiar czasu", "Narzędzia"),
+    ShortcutDef("check_language", "Ctrl+Shift+J", "Sprawdź poprawność języka", "Narzędzia"),
+    ShortcutDef("quicktrans", "Ctrl+Shift+Q", "QuickTrans – porównanie silników", "Narzędzia", editor=False),
+    ShortcutDef("tmx_editor", "Ctrl+Shift+X", "Edytor pamięci TMX", "Narzędzia", editor=False),
+    ShortcutDef("copy_timing", "Ctrl+Shift+P", "Kopiuj pomiar czasu", "Narzędzia"),
     ShortcutDef("run_qa", "F8", "Uruchom kontrolę QA", "Narzędzia", editor=False),
     ShortcutDef("statistics", "F9", "Statystyki projektu", "Narzędzia", editor=False),
 ]
 
 BY_KEY: Dict[str, ShortcutDef] = {s.key: s for s in SHORTCUTS}
+
+#: Litery, które na polskiej klawiaturze powstają z AltGr (czyli Ctrl+Alt
+#: w Qt): ą ć ę ł ń ó ś ź ż. Skrót „Alt + taka litera” sprawia, że zamiast
+#: polskiego znaku uruchamia się polecenie.
+_POLISH_ALTGR_LETTERS = set("acelnosxz")
+
+
+def blocks_polish_letters(sequence: str) -> bool:
+    """Czy kombinacja wyłapuje wpisywanie polskiego znaku.
+
+    Na polskiej klawiaturze AltGr+E to „ę”, a Qt widzi to jako ``Ctrl+Alt+E``.
+    Skrót o takiej kombinacji „zjada” literę — dlatego żaden domyślny skrót
+    programu nie używa Alt z literą.
+    """
+    parts = [p.strip().lower() for p in (sequence or "").split("+") if p.strip()]
+    if not parts or "alt" not in parts:
+        return False
+    key = parts[-1]
+    return len(key) == 1 and key.isalpha() and key in _POLISH_ALTGR_LETTERS
 
 
 def groups() -> List[str]:

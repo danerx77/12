@@ -473,6 +473,15 @@ class SettingsTab(QTabWidget):
     def _apply_shortcut(self, key: str, sequence: str) -> None:
         from ..core import shortcuts as _sc
 
+        if _sc.blocks_polish_letters(sequence):
+            if QMessageBox.question(
+                self, "Skrót blokuje polskie znaki",
+                f"Kombinacja „{sequence}” używa Alt z literą. Na polskiej "
+                "klawiaturze AltGr z tą literą wpisuje polski znak "
+                "(np. ę, ś, ń), więc skrót będzie „zjadał” wpisywane litery.\n\n"
+                "Zapisać mimo to?",
+            ) != QMessageBox.StandardButton.Yes:
+                return
         conflict = _sc.find_conflict(key, sequence)
         if conflict:
             if QMessageBox.question(

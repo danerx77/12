@@ -120,7 +120,8 @@ def adapt_translation(source_text: str | None, tm_translation: str | None) -> st
     result = tm_translation
     for start, end, replacement in replacements:
         result = result[:start] + replacement + result[end:]
-    return result.strip()
+    result = result.strip()
+    return trim_break_spaces(source_text, result)
 
 
 def normalize_tags_for_comparison(text: str | None) -> str:
@@ -340,6 +341,70 @@ def split_code_structure(text: str | None,
     return paragraphs
 
 
+def normalize_break_spaces(source: str | None, target: str | None,
+                           line_breaks: Sequence[str] | None = None,
+                           para_breaks: Sequence[str] | None = None) -> str:
+    """Ucina spacje przy kodach wiersza, których nie ma w oryginale.
+
+    Wpis w pamięci bywa zapisany z odstępem przed przełamaniem::
+
+        oryginał:    ...even a crash with a jet\nplane won't leave a scratch.
+        wpis w TM:   ...nawet \nzderzenie nie pozostawi zadrapania.
+                                ^ spacja, której nie ma w oryginale
+
+    Po wstawieniu taka spacja zostaje w pliku i psuje tekst (w grze widać
+    odstęp na początku drugiej linii). Tu przycinamy odstępy przy kodach tak,
+    żeby układ zgadzał się z oryginałem — spacja znika tylko wtedy, gdy
+    w oryginale też jej nie ma.
+
+    Struktura kodów musi się zgadzać (tyle samo akapitów i wierszy); inaczej
+    nie wiadomo, co do czego porównać i tekst zostaje nietknięty.
+    """
+    if not source or not target:
+        return target or ""
+    src_paras = split_code_structure(source, line_breaks, para_breaks)
+    tgt_paras = split_code_structure(target, line_breaks, para_breaks)
+    if len(src_paras) != len(tgt_paras):
+        return target
+    out: List[str] = []
+    for src_par, tgt_par in zip(src_paras, tgt_paras):
+        if len(src_par) != len(tgt_par):
+            out.append("".join(text + code for text, code in tgt_par))
+            continue
+        pieces: List[str] = []
+        for index, (text, code) in enumerate(tgt_par):
+            src_line = src_par[index][0]
+            # koniec wiersza: spacja przed kodem
+            if index < len(tgt_par) - 1 and text.endswith(" ") \
+                    and not src_line.endswith(" "):
+                text = text.rstrip(" ")
+            # początek wiersza: spacja zaraz po kodzie
+            if index > 0 and text.startswith(" ") and not src_line.startswith(" "):
+                text = text.lstrip(" ")
+            pieces.append(text + code)
+        out.append("".join(pieces))
+    return "".join(out)
+
+def trim_break_spaces(source: str | None, target: str | None,
+                      line_breaks: Sequence[str] | None = None,
+                      para_breaks: Sequence[str] | None = None) -> str:
+    """Odstępy przy kodach wiersza zgodnie z oryginałem (z wyłącznikiem).
+
+    Wyłącznik: ustawienie ``tm.adapt.break.spaces`` (domyślnie włączone).
+    Kiedy ktoś celowo trzyma spację przed ``\\n``, wyłącza opcję — tekst
+    z pamięci trafia wtedy do pliku bez żadnych zmian.
+    """
+    if not source or not target:
+        return target or ""
+    try:
+        from .settings import SettingsManager
+
+        if not SettingsManager.instance().get_bool("tm.adapt.break.spaces", True):
+            return target
+    except Exception:
+        return target
+    return normalize_break_spaces(source, target, line_breaks, para_breaks)
+
 def codes_structure_matches(source: str | None, target: str | None,
                             line_breaks: Sequence[str] | None = None,
                             para_breaks: Sequence[str] | None = None) -> bool:
@@ -546,6 +611,7 @@ def adapt_codes(source: str | None, target: str | None,
     """
     if not source or not target or not target.strip():
         return target or ""
+    target = trim_break_spaces(source, target, line_breaks, para_breaks)
     if codes_structure_matches(source, target, line_breaks, para_breaks):
         return target
 
