@@ -63,6 +63,12 @@ DEFAULTS: Dict[str, Any] = {
     "tm.autosave.tmx": True,              # zapisuj pamięć projektu do pliku TMX
     "tm.autosave.tmx.name": "project_tm.tmx",
     # --- Edytor ---
+    #: Szerokości kolumn siatki segmentów (JSON: [#, źródło, tłumaczenie, status]).
+    "editor.grid.columns": "",
+    #: Szerokości paneli edytora (JSON: {"main": [...], "center": [...]}).
+    "editor.split.sizes": "",
+    #: Wysokości paneli po prawej w układzie „wszystko naraz” (JSON: [...]).
+    "editor.panel.heights": "",
     "editor.font.size": 12,
     "ui.time.unit": "auto",               # auto | ms | s | min – jednostki licznika czasu
     "editor.font.family": "Segoe UI",
@@ -74,6 +80,8 @@ DEFAULTS: Dict[str, Any] = {
     "auto.save.enabled": True,
     "auto.save.interval": 30,
     # --- Motyw ---
+    #: Wielkość czcionki całego interfejsu w punktach; 0 = domyślna z motywu.
+    "ui.font.size": 0,
     "theme.dark": True,
     # --- Projekt ---
     "auto.load.last.project": False,

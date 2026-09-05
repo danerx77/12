@@ -85,6 +85,19 @@ class SettingsTab(QTabWidget):
         self.time_unit.currentIndexChanged.connect(self._change_time_unit)
         form.addRow("Jednostki czasu:", self.time_unit)
 
+        self.ui_font_size = QSpinBox()
+        self.ui_font_size.setMaximumWidth(140)
+        self.ui_font_size.setRange(0, 28)
+        self.ui_font_size.setSuffix(" pkt")
+        self.ui_font_size.setValue(self.settings.get_int("ui.font.size", 0))
+        self.ui_font_size.setToolTip(
+            "Wielkość czcionki w CAŁYM programie: menu, zakładki, tabele,\n"
+            "przyciski, listy plików. Zero = rozmiar domyślny motywu.\n"
+            "Skróty: Ctrl+Shift++ i Ctrl+Shift+− (menu Widok).")
+        self.ui_font_size.valueChanged.connect(
+            lambda v: (self.settings.set("ui.font.size", v), self._apply_ui_font()))
+        form.addRow("Czcionka interfejsu (0 = domyślna):", self.ui_font_size)
+
         self.font_size = QSpinBox()
         self.font_size.setMaximumWidth(140)
         self.font_size.setRange(8, 28)
@@ -147,8 +160,9 @@ class SettingsTab(QTabWidget):
         self.panel_font_size.setRange(0, 24)
         self.panel_font_size.setSuffix(" pkt (0 = domyślna)")
         self.panel_font_size.setToolTip(
-            "Wielkość czcionki w panelach po prawej: Dopasowania TM,\n"
-            "Dopasowanie zdań, Terminy, Konkordancja. Zero = czcionka aplikacji.")
+            "Wielkość czcionki w CAŁYM prawym panelu — Dopasowania TM,\n"
+            "Dopasowanie zdań, Terminy, Konkordancja, MT, Język, Notatki\n"
+            "(etykiety i przyciski też). Zero = czcionka interfejsu.")
         self.panel_font_size.setValue(
             self.settings.get_int("tm.panel.font.size", 0))
         self.panel_font_size.valueChanged.connect(
@@ -627,6 +641,17 @@ class SettingsTab(QTabWidget):
         editor = getattr(self.app, "editor_tab", None)
         if editor is not None and hasattr(editor, "apply_panel_font"):
             editor.apply_panel_font()
+
+    def _apply_ui_font(self) -> None:
+        """Zmiana rozmiaru czcionki całego interfejsu (od razu, bez restartu)."""
+        window = getattr(self.app, "apply_ui_font", None)
+        if callable(window):
+            window()
+            # Spinboxy w Ustawieniach też muszą pokazać nowy stan.
+            if hasattr(self, "ui_font_size"):
+                self.ui_font_size.blockSignals(True)
+                self.ui_font_size.setValue(self.settings.get_int("ui.font.size", 0))
+                self.ui_font_size.blockSignals(False)
 
     def _apply_panel_layout(self) -> None:
         editor = getattr(self.app, "editor_tab", None)

@@ -53,6 +53,30 @@ def format_duration(ms: float, unit: str = "auto") -> str:
     return f"{ms / 60000:.2f} min"
 
 
+_CSS_FONT_SIZE_RE = re.compile(r"font-size\s*:\s*(\d+)\s*(px|pt)", re.IGNORECASE)
+
+
+def _scale_css_font_size(sheet: str, new_points: int, base_font: QFont) -> str:
+    """Skaluje rozmiary w regułach CSS wg proporcji nowej czcionki do bazowej.
+
+    Kontrolki z własnym arkuszem stylów (np. szare podpowiedzi
+    „font-size: 11px”) nie reagują na ``setFont`` — arkusz jest ważniejszy.
+    Takie kontrolki zwracają rozmiar w PIKSELACH (``pointSize() == -1``),
+    więc trzeba go najpierw przeliczyć na punkty.
+    """
+    base_points = base_font.pointSize()
+    if base_points <= 0:
+        pixels = base_font.pixelSize()
+        base_points = pixels * 72 / 96 if pixels > 0 else 0
+    ratio = (new_points / base_points) if base_points > 0 else 1.0
+
+    def replace(match) -> str:
+        value = int(match.group(1))
+        return f"font-size: {max(6, int(round(value * ratio)))}px"
+
+    return _CSS_FONT_SIZE_RE.sub(replace, sheet)
+
+
 class DropFileList(QListWidget):
     """Lista plików projektu: import przeciągnięciem i zmiana kolejności.
 
@@ -201,6 +225,120 @@ class SegmentGrid(QTableWidget):
     _NAV_KEYS = (Qt.Key.Key_Down, Qt.Key.Key_Up,
                  Qt.Key.Key_PageDown, Qt.Key.Key_PageUp,
                  Qt.Key.Key_Home, Qt.Key.Key_End)
+
+    #: Kolumny, które wypełniają wolne miejsce: „Tekst źródłowy” i „Tłumaczenie”.
+    STRETCH_COLUMNS = (1, 2)
+    #: Najmniejsza sensowna szerokość kolumny rozciągliwej (px).
+    MIN_STRETCH = 60
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        #: Prawda, gdy sami przeliczamy szerokości (żeby nie zapisać ich
+        #: jako „zmiana użytkownika” i nie wejść w rekurencję).
+        self._fitting = False
+
+    def is_fitting(self) -> bool:
+        """Czy trwa właśnie własne rozmieszczanie kolumn."""
+        return self._fitting
+
+    def fill_width(self, keep: Optional[int] = None) -> None:
+        """Dociąga kolumny rozciągliwe do szerokości okna.
+
+        Qt potrafi to robić samo — tryb ``Stretch`` — ale wtedy **nie wolno**
+        przesuwać krawędzi kolumny myszą (Qt ignoruje nawet ``resizeSection``).
+        Dlatego kolumny są ``Interactive`` (pełna swoboda przeciągania), a
+        wyrównanie do szerokości okna robimy tutaj.
+
+        ``keep`` — kolumna, której szerokość właśnie ustawił użytkownik:
+        ona zostaje bez zmian, a różnicę przejmuje jej sąsiad — dokładnie tak
+        jak w arkuszu (przesuwasz krawędź, sąsiad się zwęża). Dzięki temu
+        da się ustawić każdą kolumnę, także ostatnią.
+        Bez ``keep`` (zmiana szerokości okna) wolne miejsce dzielone jest
+        proporcjonalnie do tego, jak użytkownik ustawił kolumny ostatnio.
+        """
+        if self._fitting or self.columnCount() <= 0:
+            return
+        available = self.viewport().width()
+        if available <= 0:
+            return
+        stretch = [c for c in self.STRETCH_COLUMNS if c < self.columnCount()]
+        if not stretch:
+            return
+        header = self.horizontalHeader()
+        base_min = max(1, header.minimumSectionSize())
+        columns = self.columnCount()
+
+        def minimum_for(col: int) -> int:
+            return max(base_min, self.MIN_STRETCH if col in stretch else 0)
+
+        widths = [self.columnWidth(c) for c in range(columns)]
+        other = sum(w for c, w in enumerate(widths) if c not in stretch)
+        target = available - other
+        new: dict[int, int] = {}
+
+        neighbour = -1
+        if keep is not None and 0 <= keep < columns and columns > 1:
+            neighbour = keep + 1 if keep + 1 < columns else keep - 1
+
+        if neighbour >= 0:
+            # Miejsce dla sąsiada = cała szerokość okna minus wszystko poza
+            # przesuwaną kolumną i jej sąsiadem.
+            rest_width = sum(w for c, w in enumerate(widths)
+                             if c != keep and c != neighbour)
+            room = available - rest_width - widths[keep]
+            n_min = base_min
+            if room < n_min:
+                # Sąsiad nie ma już czego oddać – kolumna dojechała do krawędzi.
+                new[keep] = max(n_min, available - rest_width - n_min)
+                new[neighbour] = n_min
+            else:
+                new[keep] = widths[keep]
+                new[neighbour] = room
+        else:
+            current = sum(widths[c] for c in stretch)
+            if current <= 0:
+                new = {c: max(minimum_for(c), target // len(stretch)) for c in stretch}
+            elif abs(current - target) <= 2:
+                return                              # już pasuje – nie ruszaj
+            else:
+                scaled = {c: widths[c] * target / current for c in stretch}
+                new = {c: max(minimum_for(c), int(scaled[c])) for c in stretch}
+                # Reszta z zaokrągleń idzie do kolumn z największą częścią
+                # ułamkową. Bez tego 1–2 px lądowało zawsze w ostatniej
+                # kolumnie i proporcje „uciekały” po każdym przeliczeniu
+                # (widać to było przy przełączaniu układu panelu).
+                missing = target - sum(new.values())
+                if missing > 0:
+                    order = sorted(stretch, key=lambda c: scaled[c] - int(scaled[c]),
+                                   reverse=True)
+                    i = 0
+                    while missing > 0:
+                        new[order[i % len(order)]] += 1
+                        missing -= 1
+                        i += 1
+                excess = sum(new.values()) - target
+                if excess > 0:
+                    # Po nałożeniu minimów miejsca może zabraknąć – zdejmij
+                    # nadmiar z najszerszej kolumny, żeby nie wyszedł pasek.
+                    for col in sorted(stretch, key=lambda c: new[c], reverse=True):
+                        give = min(excess, new[col] - minimum_for(col))
+                        if give > 0:
+                            new[col] -= give
+                            excess -= give
+                        if excess <= 0:
+                            break
+
+        self._fitting = True
+        try:
+            for col, width in new.items():
+                if width != widths[col]:
+                    self.setColumnWidth(col, width)
+        finally:
+            self._fitting = False
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt API)
+        super().resizeEvent(event)
+        self.fill_width()
 
     def event(self, event):
         """Przechwytuje Ctrl+↑/↓ **zanim** Qt odda je skrótowi menu.
@@ -579,12 +717,34 @@ class EditorTab(QWidget):
         self.grid.setAlternatingRowColors(True)
         self.grid.setWordWrap(False)
         header = self.grid.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        # Wszystkie kolumny przesuwne myszą. Wcześniej dwie środkowe były
+        # w trybie Stretch, a wtedy Qt w ogóle nie pozwala zmienić szerokości
+        # — nawet programowo — więc kolumn „nie dało się” rozciągnąć.
+        # Wolne miejsce rozkłada SegmentGrid.fill_width() (zachowuje proporcje
+        # ustawione przez użytkownika).
+        for col in range(self.grid.columnCount()):
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
+        header.setMinimumSectionSize(40)
+        header.setToolTip(
+            "Przeciągnij krawędź nagłówka, żeby zmienić szerokość kolumny.\n"
+            "Szerokości są zapamiętywane między sesjami (prawy przycisk = Reset).")
         self.grid.setColumnWidth(0, 55)
+        self.grid.setColumnWidth(1, 400)
+        self.grid.setColumnWidth(2, 400)
         self.grid.setColumnWidth(3, 150)
+        self._restore_grid_columns()
+        header.sectionResized.connect(self._on_grid_column_resized)
+        header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        header.customContextMenuRequested.connect(self._grid_header_menu)
+        # Pionowy pasek przewijania zmienia szerokość okna roboczego siatki —
+        # bez tego po dodaniu segmentów zostawał pusty pasek poziomy.
+        self.grid.verticalScrollBar().rangeChanged.connect(
+            lambda *_a: self.grid.fill_width())
+        # Zapis szerokości jest odroczony: przeciąganie wywołuje sectionResized
+        # dziesiątki razy, a każdy zapis to osobny plik na dysku.
+        self._grid_col_timer = QTimer(self)
+        self._grid_col_timer.setSingleShot(True)
+        self._grid_col_timer.timeout.connect(self._save_grid_columns)
         self.grid.itemSelectionChanged.connect(self._on_grid_selection)
         # Ctrl+↑/↓ w tabeli domyślnie „rozciąga” zaznaczenie zamiast po prostu
         # przejść do sąsiedniego wiersza — obsługuje to SegmentGrid.
@@ -1063,6 +1223,74 @@ class EditorTab(QWidget):
         self.app.project_manager.save_project()
         self.update_file_counters()
 
+    # ------------------------------------------------- szerokość kolumn siatki
+    DEFAULT_GRID_COLUMNS = (55, 400, 400, 150)
+
+    def _on_grid_column_resized(self, logical, _old, _new) -> None:
+        """Użytkownik przesunął kolumnę: dociągnij resztę i zapamiętaj.
+
+        Zapis jest odroczony – przeciąganie wywołuje ten sygnał dziesiątki
+        razy, a każdy zapis to osobny plik na dysku.
+        """
+        if self.grid.is_fitting():
+            return                      # to my przeliczamy – nie nadpisuj
+        self.grid.fill_width(keep=logical)
+        self._grid_col_timer.start(500)
+
+    def _save_grid_columns(self) -> None:
+        import json
+
+        try:
+            widths = [self.grid.columnWidth(c) for c in range(self.grid.columnCount())]
+            SettingsManager.instance().set("editor.grid.columns", json.dumps(widths))
+        except Exception:
+            pass
+
+    def _restore_grid_columns(self) -> None:
+        """Wczytuje szerokości kolumn zapisane w poprzedniej sesji."""
+        import json
+
+        raw = SettingsManager.instance().get("editor.grid.columns")
+        if not isinstance(raw, str) or not raw:
+            return
+        try:
+            widths = json.loads(raw)
+        except ValueError:
+            return
+        if not isinstance(widths, list) or len(widths) != self.grid.columnCount():
+            return
+        for col, value in enumerate(widths):
+            try:
+                width = int(value)
+            except (TypeError, ValueError):
+                continue
+            if width > 0:
+                self.grid.setColumnWidth(col, width)
+
+    def reset_grid_columns(self) -> None:
+        """Domyślne szerokości kolumn siatki (menu nagłówka)."""
+        for col, width in enumerate(self.DEFAULT_GRID_COLUMNS):
+            if col < self.grid.columnCount():
+                self.grid.setColumnWidth(col, width)
+        self.grid.fill_width()
+        self._save_grid_columns()
+        self.status_message.emit("↺ Przywrócono domyślne szerokości kolumn")
+
+    def _grid_header_menu(self, pos) -> None:
+        """Menu nagłówka siatki: dopasowanie i powrót do domyślnych szerokości."""
+        menu = QMenu(self.grid)
+        act_fit = menu.addAction("↔ Dopasuj kolumny do okna")
+        act_reset = menu.addAction("↺ Domyślne szerokości kolumn")
+        menu.addSeparator()
+        act_info = menu.addAction("ℹ️ Przeciągnij krawędź nagłówka, aby zmienić szerokość")
+        act_info.setEnabled(False)
+        chosen = menu.exec(self.grid.horizontalHeader().mapToGlobal(pos))
+        if chosen == act_fit:
+            self.grid.fill_width()
+            self._save_grid_columns()
+        elif chosen == act_reset:
+            self.reset_grid_columns()
+
     def _save_split_sizes(self, *_a) -> None:
         """Pamięta szerokości kolumn (pliki | edytor | panel) między sesjami."""
         try:
@@ -1074,6 +1302,69 @@ class EditorTab(QWidget):
             }))
         except Exception:
             pass
+
+    def _set_split_sizes(self, left: int, center: int, right: int) -> None:
+        """Ustawia szerokości [pliki | edytor | panel] z zachowaniem proporcji.
+
+        Używane po przełączaniu układu panelu: splitter po wstawieniu nowego
+        kontenera sam przelicza rozmiary i zwęża prawą kolumnę do minimum.
+        """
+        splitter = self.main_splitter
+        if splitter.count() < 3:
+            return
+        total = sum(splitter.sizes()) or splitter.width()
+        right = max(int(right), splitter.widget(2).minimumWidth())
+        rest = max(0, total - right)
+        base = left + center
+        if base > 0:
+            new_left = int(rest * left / base)
+        else:
+            new_left = int(rest * 0.22)
+        new_center = max(0, rest - new_left)
+        splitter.setSizes([new_left, new_center, right])
+
+    def _save_panel_heights(self, *_a) -> None:
+        """Zapamiętuje wysokości paneli po prawej (przeciąganie myszą)."""
+        import json
+
+        stack = getattr(self, "_right_stack", None)
+        if stack is None:
+            return
+        try:
+            SettingsManager.instance().set("editor.panel.heights",
+                                           json.dumps(stack.sizes()))
+        except Exception:
+            pass
+
+    def _restore_panel_heights(self) -> None:
+        """Wczytuje wysokości paneli zapisane w poprzedniej sesji."""
+        import json
+
+        stack = getattr(self, "_right_stack", None)
+        if stack is None:
+            return
+        raw = SettingsManager.instance().get("editor.panel.heights")
+        if not isinstance(raw, str) or not raw:
+            return
+        try:
+            sizes = json.loads(raw)
+        except ValueError:
+            return
+        if not isinstance(sizes, list) or len(sizes) != stack.count():
+            return                      # inny zestaw paneli – zostaw równo
+        try:
+            stack.setSizes([max(0, int(v)) for v in sizes])
+        except (TypeError, ValueError):
+            return
+
+    def reset_panel_heights(self) -> None:
+        """Równy podział wysokości paneli (↺ Przywróć układ paneli)."""
+        stack = getattr(self, "_right_stack", None)
+        if stack is None or not stack.count():
+            return
+        per = max(60, stack.height() // stack.count())
+        stack.setSizes([per] * stack.count())
+        self._save_panel_heights()
 
     def _restore_split_sizes(self) -> None:
         import json
@@ -1104,6 +1395,13 @@ class EditorTab(QWidget):
         mode = sm.get_str("tm.panel.layout", "stacked")
         visible = [(title, w) for title, w, key in self._right_panels
                    if sm.get_bool(f"tm.panel.show.{key}", True)]
+        # Szerokość prawej kolumny PRZED przełączaniem. Nowy kontener wchodzi
+        # do splittera z minimalną szerokością (180 px), więc bez tego panel
+        # po każdej zmianie układu zwężał się do minimum i wyglądał na pusty.
+        prev = self.main_splitter.sizes()
+        prev_left = prev[0] if len(prev) > 0 else 0
+        prev_center = prev[1] if len(prev) > 1 else 0
+        prev_right = prev[2] if len(prev) > 2 else 0
         # wypnij boxy ze starego kontenera (przeżyją deleteLater)
         for _title, w, _key in self._right_panels:
             w.setParent(None)
@@ -1113,6 +1411,7 @@ class EditorTab(QWidget):
             # samo oczyści handle (childEvent), a kontener idzie do kosza.
             old.setParent(None)
             old.deleteLater()
+        self._right_stack = None
         if mode == "tabs":
             container = QTabWidget()
             # zakładki PO LEWEJ (pionowo) — w jednym rzędzie (North)
@@ -1125,17 +1424,26 @@ class EditorTab(QWidget):
             container = QScrollArea()
             container.setWidgetResizable(True)
             container.setFrameShape(QFrame.Shape.NoFrame)
-            inner = QWidget()
-            il = QVBoxLayout(inner)
-            il.setContentsMargins(0, 0, 2, 0)
-            il.setSpacing(6)
+            # Pionowy splitter zamiast zwykłego układu: wysokość każdego
+            # panelu można przeciągnąć myszą. Dawniej panele dzieliły się
+            # po równo i nie było czego złapać — nie dało się powiększyć
+            # „Dopasowań TM” kosztem pozostałych.
+            stack = QSplitter(Qt.Orientation.Vertical)
             for title, w in visible:
                 grp = QGroupBox(title)
                 gl = QVBoxLayout(grp)
                 gl.setContentsMargins(6, 4, 6, 6)
                 gl.addWidget(w)
-                il.addWidget(grp, 1)          # równe, rozciągalne podziały
-            container.setWidget(inner)
+                stack.addWidget(grp)
+            # 60 px minimum + 8 px uchwyt: panelu nie da się zgubić,
+            # a uchwyt łatwo trafić myszą (styl jak w kolumnach edytora).
+            setup_splitter(stack, minimums=[60] * stack.count())
+            for handle_index in range(stack.count() - 1):
+                stack.handle(handle_index).setToolTip(
+                    "Przeciągnij, żeby zmienić wysokość panelu — "
+                    "ustawienie jest zapamiętywane")
+            container.setWidget(stack)
+            self._right_stack = stack
         self._right_container = container
         self.main_splitter.insertWidget(self.main_splitter.count(), container)
         # Kontener wchodzi do splittera PO setup_splitter() — musi sam
@@ -1149,6 +1457,34 @@ class EditorTab(QWidget):
         # Rozmiary kolumn po przełączeniu układu — bez tego nowy kontener
         # startuje z zerem i panele „przestają pokazywać wartości”.
         self._restore_split_sizes()
+        if prev_right > container.minimumWidth():
+            # Mamy żywą szerokość sprzed przełączenia — jest wiarygodniejsza
+            # niż zapisana w ustawieniach (tę Qt i tak właśnie nadpisał).
+            self._set_split_sizes(prev_left, prev_center, prev_right)
+            # Przełączanie nie emituje splitterMoved, więc zapisujemy sami
+            # (tylko tutaj — przy pierwszym budowaniu okna nie ma jeszcze
+            # czego zapisywać, a zapis nadpisałby domyślne proporcje).
+            self._save_split_sizes()
+        # Panele PO przełączeniu muszą być pokazane z powrotem:
+        # * setParent(None) chowa widget „na sztywno” – Qt zapamiętuje, że
+        #   został ukryty, i nie pokazuje go, gdy trafi do nowego kontenera,
+        # * w zakładkach QTabWidget chowa wszystkie karty poza bieżącą.
+        # Bez tego po zmianie układu prawa strona była pusta.
+        if self._right_stack is not None:
+            # Wysokości paneli: zapamiętane z poprzedniej sesji i na bieżąco.
+            # Złapane TUTAJ (po wstawieniu do splittera), bo dopiero teraz
+            # splitter ma prawdziwą wysokość i setSizes() ma się do czego
+            # odnieść — Qt i tak zachowa proporcje, gdy okno jest inne.
+            self._restore_panel_heights()
+            self._right_stack.splitterMoved.connect(self._save_panel_heights)
+        for _title, widget in visible:
+            widget.show()
+        if isinstance(container, QTabWidget):
+            current = container.currentIndex()
+            for page_index in range(container.count()):
+                page = container.widget(page_index)
+                if page is not None:
+                    page.setVisible(page_index == current)
         self.apply_panel_font()
         # Na wszelki wypadek odśwież panele podpowiedzi dla bieżącego
         # segmentu (przenoszenie widжетów nie powinno nic gubić, ale przy
@@ -1157,17 +1493,51 @@ class EditorTab(QWidget):
             self.load_segment(self.current_index)
 
     def apply_panel_font(self) -> None:
-        """Wielkość czcionki paneli po prawej (TM / zdania / terminy / konkordancja).
+        """Wielkość czcionki w całym prawym panelu (TM / zdania / terminy / …).
 
-        Ustawienie ``tm.panel.font.size``; 0 = czcionka domyślna aplikacji.
+        Ustawienie ``tm.panel.font.size``; 0 = czcionka aplikacji. Obejmuje
+        wszystko w panelu — listy, etykiety, przyciski, podgląd MT, notatki
+        (dawniej tylko cztery listy, więc zmiana była ledwo widoczna).
+
+        Oryginalna czcionka każdej kontrolki jest zapisana w jej właściwości
+        Qt — dzięki temu powrót do zera przywraca wyjściowy wygląd, a
+        przeliczenie można powtórzyć dowolną liczbę razy.
         """
         size = SettingsManager.instance().get_int("tm.panel.font.size", 0)
-        f = self.font()
-        if size > 0:
-            f.setPointSize(size)
-        for w in (self.matches_list, self.sentence_list, self.terms_list,
-                  self.concordance_list):
-            w.setFont(f)
+        roots = [w for _title, w, _key in self._right_panels]
+        # _build_ui woła to jeszcze przed zbudowaniem kontenera.
+        container = getattr(self, "_right_container", None)
+        if container is not None:
+            roots.append(container)
+        for root in roots:
+            for widget in [root, *root.findChildren(QWidget)]:
+                base = widget.property("sc_base_font")
+                if not isinstance(base, QFont):
+                    base = QFont(widget.font())
+                    widget.setProperty("sc_base_font", base)
+                if size > 0:
+                    font = QFont(base)
+                    font.setPointSize(size)
+                    widget.setFont(font)
+                else:
+                    # Zero = czcionka programu. Bierzemy ją na żywo, żeby panel
+                    # rósł razem z całym interfejsem (ustawienie „Czcionka
+                    # interfejsu”), a nie zostawał przy tej z pierwszego startu.
+                    application = QApplication.instance()
+                    widget.setFont(QFont(application.font())
+                                   if application is not None else QFont(base))
+                # Etykiety z własnym arkuszem („font-size: 11px”) ignorują
+                # setFont — im zmieniamy rozmiar w samym arkuszu stylów.
+                sheet = widget.styleSheet()
+                if "font-size" in sheet:
+                    original = widget.property("sc_base_sheet")
+                    if not isinstance(original, str):
+                        original = sheet
+                        widget.setProperty("sc_base_sheet", original)
+                    new_sheet = (_scale_css_font_size(original, size, base)
+                                 if size > 0 else original)
+                    if new_sheet != sheet:
+                        widget.setStyleSheet(new_sheet)
 
     def _file_counters(self) -> "dict[str, tuple[int, int, int]]":
         """Zlicza (przetłumaczone, do zrobienia, pominięte) dla każdego pliku.
@@ -1388,6 +1758,41 @@ class EditorTab(QWidget):
         self.app.remove_project_files(names)
         self._on_files_selection_changed()
 
+    def _reapply_tm_to_file(self, file_name: Optional[str]) -> None:
+        """TM jeszcze raz po WSZYSTKICH segmentach — także przetłumaczonych.
+
+        Zwykłe „Zastosuj TM” pomija to, co już przetłumaczone. Ta opcja
+        podmienia istniejące tłumaczenia na najlepsze dopasowanie z pamięci,
+        więc najpierw pytamy, ile segmentów to obejmie i czy na pewno
+        (★ zatwierdzonych nie ruszamy).
+        """
+        sm = SettingsManager.instance()
+        threshold = sm.get_int("auto.insert.threshold", 80)
+        label = file_name or "wszystkich plików"
+        count = sum(
+            1 for s in self.segments
+            if not s.ignored and s.status != "approved" and (s.target or "").strip()
+            and (file_name is None or (s.file_name or "(bez pliku)") == file_name))
+        if not count:
+            QMessageBox.information(
+                self, "Zastosuj TM ponownie",
+                "Nie ma segmentów z tłumaczeniem, które można podmienić.")
+            return
+        answer = QMessageBox.question(
+            self, "Zastosuj TM ponownie",
+            f"W „{label}” jest <b>{count}</b> segmentów z tłumaczeniem.\n\n"
+            f"Każde z nich zostanie podmienione na najlepsze dopasowanie z TM "
+            f"(próg {threshold}% — zmienisz go w <i>Ustawienia → Pamięć TM</i>).\n"
+            "• segmenty ★ zatwierdzone zostaną pominięte,\n"
+            "• to, co wpisałeś ręcznie, może zostać nadpisane.\n\n"
+            "Kontynuować?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            self.status_message.emit("Zastosuj TM ponownie — przerwane")
+            return
+        self.app.apply_tm_to_all(only_file=file_name, include_translated=True)
+
     def _files_context_menu(self, pos) -> None:
         """Menu podręczne listy plików (prawy przycisk myszy)."""
         item = self.files_list.itemAt(pos)
@@ -1397,11 +1802,22 @@ class EditorTab(QWidget):
         segments = [s for s in self.segments
                     if file_name is None or (s.file_name or "(bez pliku)") == file_name]
         pending = sum(1 for s in segments if not s.is_translated and not s.ignored)
+        # Segmenty, w których TM może PODMIENIĆ istniejące tłumaczenie
+        # (zatwierdzonych ★ nie ruszamy — to gotowa, sprawdzona praca).
+        done = sum(1 for s in segments
+                   if not s.ignored and s.status != "approved" and (s.target or "").strip())
         label = file_name or "wszystkich plików"
 
         menu = QMenu(self)
         act_tm = menu.addAction(f"💡 Zastosuj TM do „{label}” ({pending} pustych)")
         act_tm.setEnabled(pending > 0 and self.app.tm.is_initialized)
+        act_tm_again = menu.addAction(
+            f"🔁 Zastosuj TM ponownie – „{label}” ({done} z tłumaczeniem)")
+        act_tm_again.setToolTip(
+            "Podmienia istniejące tłumaczenia na najlepsze dopasowania z TM.\n"
+            "Przydatne, gdy do pamięci doszły lepsze wpisy.\n"
+            "Segmenty ★ zatwierdzone są pomijane.")
+        act_tm_again.setEnabled(done > 0 and self.app.tm.is_initialized)
         act_mt = menu.addAction(f"🤖 Przetłumacz maszynowo „{label}” ({pending} pustych)")
         act_mt.setEnabled(pending > 0)
         menu.addSeparator()
@@ -1443,6 +1859,8 @@ class EditorTab(QWidget):
             return
         if chosen == act_tm:
             self.app.apply_tm_to_all(only_file=file_name)
+        elif chosen == act_tm_again:
+            self._reapply_tm_to_file(file_name)
         elif chosen == act_mt:
             self.app.translate_all_mt(only_file=file_name)
         elif chosen == act_show:

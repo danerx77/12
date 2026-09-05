@@ -938,13 +938,7 @@ class TranslationMemory:
             settings.get_str("tm.adapt.para.codes", "\\p"), DEFAULT_PARA_BREAKS)
 
         def _wrap(assembled: str) -> str:
-            if assembled is None:
-                return assembled
-            if not settings.get_bool("tm.adapt.long.lines", True):
-                return assembled
-            from .tags import ensure_line_widths
-
-            return ensure_line_widths(haystack, assembled, _line_codes, _para_codes)
+            return wrap_to_source_widths(haystack, assembled)
 
         # 1) zbierz wszystkie fragmenty TM występujące w segmencie (z pozycjami)
         hits: List[Tuple[int, int, str, str]] = []  # (start, end, source, target)
@@ -1099,6 +1093,9 @@ class TranslationMemory:
         found: List[SentenceMatch] = []
         for start, end, db_source, db_target in hits:
             shown_target = self.adapt_case_to_source(haystack[start:end], db_target)
+            # Znacznik na brzegu fragmentu (np. „<<kon>>”) musi przeżyć
+            # podmianę, nawet gdy wpis pamięci go nie ma.
+            shown_target = preserve_edge_codes(haystack[start:end], shown_target)
             assembled = _wrap(haystack[:start] + shown_target + haystack[end:])
             coverage = int(round((end - start) * 100 / max(len(haystack), 1)))
             found.append(SentenceMatch(db_source, db_target, assembled, coverage))
@@ -1118,6 +1115,7 @@ class TranslationMemory:
                 parts_tgt: List[str] = []
                 for start, end, src, tgt in sorted(chosen, key=lambda h: -h[0]):
                     shown_tgt = self.adapt_case_to_source(haystack[start:end], tgt)
+                    shown_tgt = preserve_edge_codes(haystack[start:end], shown_tgt)
                     combined = combined[:start] + shown_tgt + combined[end:]
                     covered += end - start
                     parts_src.append(src)
@@ -1149,16 +1147,28 @@ class TranslationMemory:
             fuzzy_line.sort(key=lambda m: -m.coverage)
             found = exact_line + found + fuzzy_line
 
-        # Propozycje, które zostawiają w wyniku surowy angielski, są dla
+        # Propozycje, które zostawiają w wyniku surowy tekst źródłowy, są dla
         # tłumacza pułapką: wyglądają jak gotowe zdanie, a podmieniają samą
         # końcówkę („Would you like to mix records with\nINNE TRAINERS?”).
         # Oznaczamy je i spychamy na koniec listy — bez usuwania, bo bywają
         # użyteczne jako podpowiedź terminu.
         for match in found:
-            match.partial = _leaves_source_text(segment, match.assembled)
+            match.partial = _leaves_source_text(segment, match.assembled,
+                                                match.fragment_target)
         found.sort(key=lambda m: (m.partial, -m.coverage))
 
-        return found[:limit]
+        # Ten sam tekst nie powinien się powtarzać: ta sama para trafia do
+        # wyników i ze ścieżki dokładnej, i z rozmytej („gówna tekst”,
+        # który zgłaszał użytkownik — dwa razy to samo, raz bez znacznika).
+        unique: List[SentenceMatch] = []
+        seen_assembled: set[str] = set()
+        for match in found:
+            if match.assembled in seen_assembled:
+                continue
+            seen_assembled.add(match.assembled)
+            unique.append(match)
+
+        return unique[:limit]
 
     def _fuzzy_line_matches(self, segment: str, filter_untranslated: bool,
                             should_cancel: Optional[Callable[[], bool]] = None) -> List[SentenceMatch]:
@@ -1328,6 +1338,14 @@ class TranslationMemory:
             # Wielkość liter dopasowujemy do linii oryginału (TM trzyma np.
             # „ABILITY → ZDOLNOŚ”, a segment ma „ability”).
             shown_line = self.adapt_line_case(seg_line, tgt_line)
+            # Znacznik z brzegu linii („<<kon>>”, „{PLAYER}”) wraca na miejsce,
+            # nawet gdy wpis pamięci jest bez niego — inaczej propozycja
+            # do wstawienia była niepełna i psuła plik.
+            shown_line = preserve_edge_codes(seg_line, shown_line)
+            # Uwaga: bez wrap_to_source_widths. Segment z przełamaniem i tak
+            # zostaje nietknięty (oryginał ma kody), a dla pojedynczej linii
+            # dokładanie znacznika końca wiersza psuło poprawne propozycje
+            # („GIFT System.” → „Systemu\nMYSTERY GIFT”).
             assembled = _replace_line_in_segment(segment, seg_line, shown_line)
             coverage = int(round(len(seg_line) * 100 / max(len(segment), 1)))
             # Gdy dopasowaliśmy wpis wielolinijkowy, pokaż też rozbicie
@@ -1632,23 +1650,118 @@ def _flatten_with_map(text: str) -> Tuple[str, List[int]]:
 _IDENTICAL_WORD_LIMIT = 4
 
 
-def _leaves_source_text(segment: str, assembled: str) -> bool:
+def wrap_to_source_widths(source: str, assembled: Optional[str]) -> Optional[str]:
+    """Dociąga przełamania wierszy propozycji do oryginału.
+
+    Gdy segment był przełamany znacznikiem („The room\\\\npokój”), a wpis
+    pamięci jest jednoliniowy, złożona propozycja musi dostać przełamanie
+    z powrotem — inaczej wstawienie jej do pliku zmienia układ tekstu.
+    """
+    if assembled is None or not source:
+        return assembled
+    settings = SettingsManager.instance()
+    if not settings.get_bool("tm.adapt.long.lines", True):
+        return assembled
+    from .tags import (DEFAULT_LINE_BREAKS, DEFAULT_PARA_BREAKS, ensure_line_widths,
+                       parse_break_codes)
+
+    line_codes = parse_break_codes(
+        settings.get_str("tm.adapt.line.codes", "\\n \\l"), DEFAULT_LINE_BREAKS)
+    para_codes = parse_break_codes(
+        settings.get_str("tm.adapt.para.codes", "\\p"), DEFAULT_PARA_BREAKS)
+    return ensure_line_widths(source, assembled, line_codes, para_codes)
+
+
+#: Znaczniki „inline” (nie przełamania): <<KON>>, {PLAYER}, <b>, <color=…>.
+_INLINE_CODE_RE = re.compile(r"<<[^<>]*>>|\{[^{}]*\}|<[a-zA-Z/][^<>]*>")
+
+
+def edge_inline_codes(text: str) -> Tuple[str, str]:
+    """(znaczniki z początku, znaczniki z końca) — razem z odstępami.
+
+    Np. dla ``„gdy zdecydowaliśmy mieć 1 salę.<<kon>>”`` drugi element to
+    ``"<<kon>>"``. Używane po to, by złożona propozycja nie gubiła znaczników,
+    których nie ma we wpisie pamięci (a które są w segmencie).
+    """
+    if not text:
+        return "", ""
+    stripped = text.strip()
+    lead = ""
+    position = 0
+    while True:
+        match = _INLINE_CODE_RE.match(stripped, position)
+        if not match:
+            break
+        lead = stripped[:match.end()]
+        position = match.end()
+        while position < len(stripped) and stripped[position] == " ":
+            position += 1
+    trail = ""
+    end = len(stripped)
+    while True:
+        found = None
+        for match in _INLINE_CODE_RE.finditer(stripped):
+            if match.end() == end:
+                found = match
+                break
+        if not found:
+            break
+        trail = stripped[found.start():]
+        end = found.start()
+        while end > 0 and stripped[end - 1] == " ":
+            end -= 1
+    return lead, trail
+
+
+def preserve_edge_codes(source_text: str, translation: str) -> str:
+    """Dokleja znaczniki z brzegów segmentu, jeśli tłumaczenie ich nie ma.
+
+    Segment ``„gdy zdecydowaliśmy mieć 1 salę.<<kon>>”`` wobec wpisu pamięci
+    bez ``<<kon>>`` dawał propozycję ``„when we decided to have 1 room.”``
+    — czyli tekst do wstawienia **bez znacznika**, który potem ginął w pliku.
+    """
+    if not source_text or not translation:
+        return translation or ""
+    lead, trail = edge_inline_codes(source_text)
+    result = translation
+    if lead:
+        code = lead.strip()
+        if code and code not in result:
+            result = lead + result
+    if trail:
+        code = trail.strip()
+        if code and code not in result:
+            result = result + trail
+    return result
+
+
+def _leaves_source_text(segment: str, assembled: str,
+                        translated: str = "") -> bool:
     """Czy w złożonej propozycji został kawałek tekstu źródłowego.
 
     Dopasowanie zdań podmienia w segmencie tylko znaleziony fragment. Gdy
     fragment jest krótki, reszta zdania zostaje **po angielsku** — taka
-    propozycja bywa gorsza niż jej brak, bo łatwo ją zatwierdzić przez pomyłkę.
-    Porównujemy wyrazy: jeśli w wyniku przetrwała większość słów oryginału,
-    uznajemy złożenie za niepełne.
+    propozycja bywa gorsza niż jej brak, bo łatwo ją zatwierdzić przez pomyłkę
+    (np. „Pokój jest gotowy.\\nis ready.”).
+
+    Liczą się wyrazy, których NIE MA w tłumaczeniu z pamięci — nazwy własne
+    i terminy świadomie zostawione przez tłumacza („MYSTERY GIFT”, „{PLAYER}”)
+    są w nim obecne, więc nie podnoszą alarmu.
     """
     if not segment or not assembled:
         return False
-    source_words = [w for w in _TOKEN_RE.findall(segment.lower()) if len(w) > 2]
+    # Znaczniki (<<kon>>, {PLAYER}, \n) nie są tekstem źródłowym do przetłumaczenia
+    # — bez ich usunięcia „Hello, {PLAYER}!” wyglądało na niedokończone.
+    clean = re.sub(r"\\[A-Za-z]", " ", _INLINE_CODE_RE.sub(" ", segment))
+    source_words = [w for w in _TOKEN_RE.findall(clean.lower()) if len(w) > 2]
     if not source_words:
         return False
     result_words = set(_TOKEN_RE.findall(assembled.lower()))
-    kept = sum(1 for w in source_words if w in result_words)
-    return kept / len(source_words) > 0.5
+    known = set(_TOKEN_RE.findall((translated or "").lower()))
+    leftover = [w for w in source_words if w in result_words and w not in known]
+    if not leftover:
+        return False
+    return len(leftover) >= 2 or len(leftover) / len(source_words) > 0.25
 
 
 def _is_mostly_untranslated(source: str, target: str) -> bool:

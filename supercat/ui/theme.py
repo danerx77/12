@@ -250,5 +250,15 @@ def setup_splitter(splitter, minimums=None, collapsible: bool = False) -> None:
                 widget.setMinimumHeight(size)
 
 
-def stylesheet(dark: bool) -> str:
-    return DARK if dark else LIGHT
+def stylesheet(dark: bool, font_px: int = 0) -> str:
+    """Arkusz stylów motywu.
+
+    ``font_px`` — wymuszony rozmiar czcionki interfejsu w pikselach
+    (0 = zostaje wartość z motywu). Arkusz ma regułę ``QWidget { font-size }``,
+    która dla kontrolki jest ważniejsza niż ``setFont()`` — dlatego zmiana
+    wielkości całego interfejsu musi przejść właśnie przez ten tekst.
+    """
+    text = DARK if dark else LIGHT
+    if font_px and font_px > 0:
+        text = text.replace("font-size: 13px", f"font-size: {int(font_px)}px", 1)
+    return text

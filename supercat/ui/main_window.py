@@ -233,6 +233,9 @@ class MainWindow(QMainWindow):
                          lambda: self.apply_exclusions())
         project_menu.addSeparator()
         self._add_action(project_menu, "Zastosuj TM do wszystkich segmentów", None, self.apply_tm_to_all)
+        self._add_action(
+            project_menu, "Zastosuj TM ponownie (także do przetłumaczonych)", None,
+            lambda: self.editor_tab._reapply_tm_to_file(None))
         self._add_action(project_menu, "Przetłumacz maszynowo wszystkie segmenty", None, self.translate_all_mt)
         self._add_action(project_menu, "Zapisz wszystkie segmenty do TM", None, self.save_all_to_tm)
         project_menu.addSeparator()
@@ -274,8 +277,12 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.sentence_action)
         view_menu.addSeparator()
         self._add_action(view_menu, "Przełącz motyw (ciemny/jasny)", "Ctrl+T", self.toggle_theme)
-        self._add_action(view_menu, "Powiększ czcionkę", "Ctrl++", lambda: self.change_font(1))
-        self._add_action(view_menu, "Zmniejsz czcionkę", "Ctrl+-", lambda: self.change_font(-1))
+        self._add_action(view_menu, "Powiększ czcionkę edytora", "Ctrl++", lambda: self.change_font(1))
+        self._add_action(view_menu, "Zmniejsz czcionkę edytora", "Ctrl+-", lambda: self.change_font(-1))
+        self._add_action(view_menu, "Powiększ czcionkę interfejsu", "Ctrl+Shift++",
+                         lambda: self.change_ui_font(1))
+        self._add_action(view_menu, "Zmniejsz czcionkę interfejsu", "Ctrl+Shift+-",
+                         lambda: self.change_ui_font(-1))
         view_menu.addSeparator()
         self._add_action(view_menu, "↺ Przywróć układ paneli", "",
                          self.reset_panel_layout)
@@ -351,9 +358,14 @@ class MainWindow(QMainWindow):
             toolbar.addAction(action)
 
     # ------------------------------------------------------------- motywy
+    def _ui_font_px(self) -> int:
+        """Rozmiar czcionki interfejsu w pikselach (0 = wartość z motywu)."""
+        points = self.settings.get_int("ui.font.size", 0)
+        return int(round(points * 96 / 72)) if points > 0 else 0
+
     def apply_theme(self) -> None:
         dark = self.settings.get_bool("theme.dark", True)
-        QApplication.instance().setStyleSheet(stylesheet(dark))
+        QApplication.instance().setStyleSheet(stylesheet(dark, self._ui_font_px()))
         self.editor_tab.colors.dark = dark
         self.editor_tab.refresh_grid()
 
@@ -391,22 +403,63 @@ class MainWindow(QMainWindow):
         if center is not None:
             height = max(400, center.height())
             center.setSizes([int(height * 0.6), int(height * 0.4)])
+        # Wysokości paneli po prawej (przeciągane osobno) też wracają do
+        # równego podziału — inaczej „przywrócenie układu” działało połowicznie.
+        editor_reset = getattr(editor, "reset_panel_heights", None)
+        if editor_reset is not None:
+            editor_reset()
         self.show_status("↺ Przywrócono domyślny układ paneli")
 
     def toggle_theme(self) -> None:
         self.settings.set("theme.dark", not self.settings.get_bool("theme.dark", True))
         self.apply_theme()
 
-    def apply_font(self) -> None:
-        size = self.settings.get_int("editor.font.size", 12)
-        font = QFont(self.settings.get_str("editor.font.family", "Segoe UI"), size)
+    def apply_font(self, also_theme: bool = False) -> None:
+        """Czcionka całego programu (`ui.font.size`) + pól edytora.
+
+        Sam `setFont` na aplikacji nie wystarcza: motyw narzuca
+        `QWidget { font-size }`, który jest ważniejszy dla kontrolki. Dlatego
+        przy zmianie rozmiaru interfejsu (`also_theme`) przebudowujemy też
+        arkusz stylów i czcionkę paneli po prawej.
+        """
+        app = QApplication.instance()
+        size = self.settings.get_int("ui.font.size", 0)
+        base = getattr(self, "_base_app_font", None)
+        if base is None:
+            # Czcionka z systemu — zapamiętana raz, żeby powrót do „0”
+            # przywrócił ją zamiast ostatnio ustawionej.
+            self._base_app_font = base = QFont(app.font())
+        if size > 0:
+            font = QFont(base)
+            font.setPointSize(size)
+            app.setFont(font)
+        else:
+            app.setFont(base)
+
+        editor_font = QFont(self.settings.get_str("editor.font.family", "Segoe UI"),
+                            self.settings.get_int("editor.font.size", 12))
         for widget in (self.editor_tab.source_edit, self.editor_tab.target_edit):
-            widget.setFont(font)
+            widget.setFont(editor_font)
+        if also_theme:
+            self.apply_theme()
+            self.editor_tab.apply_panel_font()
+
+    def apply_ui_font(self) -> None:
+        """Zmiana rozmiaru czcionki całego interfejsu (Ustawienia → Wygląd)."""
+        self.apply_font(also_theme=True)
 
     def change_font(self, delta: int) -> None:
         size = max(8, min(28, self.settings.get_int("editor.font.size", 12) + delta))
         self.settings.set("editor.font.size", size)
         self.apply_font()
+
+    def change_ui_font(self, delta: int) -> None:
+        """Powiększa / zmniejsza czcionkę CAŁEGO programu (menu Widok)."""
+        current = self.settings.get_int("ui.font.size", 0) or 10
+        size = max(8, min(28, current + delta))
+        self.settings.set("ui.font.size", size)
+        self.apply_ui_font()
+        self.show_status(f"🔠 Czcionka interfejsu: {size} pkt")
 
     # ------------------------------------------------------------ projekt
     def new_project(self) -> None:
@@ -971,11 +1024,17 @@ class MainWindow(QMainWindow):
 
     # -------------------------------------------------------------- akcje
     def apply_tm_to_all(self, silent: bool = False, threshold: Optional[int] = None,
-                        then=None, only_file: Optional[str] = None) -> None:
-        """Uzupełnia puste segmenty z TM – wsadowo i w tle (nie blokuje okna).
+                        then=None, only_file: Optional[str] = None,
+                        include_translated: bool = False) -> None:
+        """Uzupełnia segmenty z TM – wsadowo i w tle (nie blokuje okna).
 
         `only_file` ogranicza działanie do jednego pliku projektu (opcja z menu
         podręcznego listy plików).
+
+        `include_translated` włącza też segmenty, które mają już tłumaczenie —
+        wtedy najlepsze dopasowanie z TM je **podmienia** (przydatne, gdy do
+        pamięci doszły nowe, lepsze wpisy). Segmentów ★ zatwierdzonych nie
+        ruszamy, żeby nie stracić gotowej pracy.
         """
         if not self._require_project():
             return
@@ -984,14 +1043,25 @@ class MainWindow(QMainWindow):
             return
         self.editor_tab._store_current()
 
-        todo = [
-            (i, s.source) for i, s in enumerate(segments)
-            if not s.is_translated and not s.ignored
-            and (only_file is None or (s.file_name or "(bez pliku)") == only_file)
-        ]
+        if include_translated:
+            todo = [
+                (i, s.source) for i, s in enumerate(segments)
+                if not s.ignored and s.status != "approved"
+                and (only_file is None or (s.file_name or "(bez pliku)") == only_file)
+            ]
+        else:
+            todo = [
+                (i, s.source) for i, s in enumerate(segments)
+                if not s.is_translated and not s.ignored
+                and (only_file is None or (s.file_name or "(bez pliku)") == only_file)
+            ]
         if not todo:
             if not silent:
-                QMessageBox.information(self, "Zastosuj TM", "Wszystkie segmenty mają już tłumaczenie.")
+                QMessageBox.information(
+                    self, "Zastosuj TM",
+                    "Wszystkie segmenty mają już tłumaczenie."
+                    if not include_translated
+                    else "Nie ma segmentów, w których można podmienić tłumaczenie.")
             if then is not None:
                 then()
             return
@@ -1015,20 +1085,38 @@ class MainWindow(QMainWindow):
 
         def on_done(idx_list, matches):
             progress.close()
-            applied = 0
+            filled = 0      # wstawione w puste segmenty
+            replaced = 0    # podmienione istniejące tłumaczenia
             for seg_index, match in zip(idx_list, matches):
                 if match is None:
                     continue
                 seg = segments[seg_index]
-                seg.target = copy_edge_whitespace(seg.source, match.text)
-                seg.status = "draft"
-                applied += 1
+                new_text = copy_edge_whitespace(seg.source, match.text)
+                old_text = seg.target or ""
+                if not old_text.strip():
+                    if not new_text.strip():
+                        continue
+                    seg.target = new_text
+                    seg.status = "draft"
+                    filled += 1
+                elif old_text.strip() != new_text.strip():
+                    # Tłumaczenie już było — podmieniamy treść, ale ZOSTAWIAMY
+                    # dotychczasowy status (żeby przetłumaczone nie spadały
+                    # do „roboczego” i nie psuły licznika postępu).
+                    seg.target = new_text
+                    replaced += 1
             self.editor_tab.refresh_grid()
             if self.editor_tab.current_index >= 0:
                 self.editor_tab.load_segment(self.editor_tab.current_index)
-            self.show_status(f"💡 Wstawiono dopasowania TM w {applied} segmentach")
+            applied = filled + replaced
+            summary = ", ".join(part for part in (
+                f"wstawiono {filled}" if filled else "",
+                f"podmieniono {replaced}" if replaced else "",
+            ) if part) or "nic do zmiany"
+            self.show_status(f"💡 TM: {summary}")
             if not silent:
-                QMessageBox.information(self, "Zastosuj TM", f"Wstawiono tłumaczenia w {applied} segmentach.")
+                QMessageBox.information(self, "Zastosuj TM",
+                                        f"Zrobione — {summary}.")
             self._workers.discard(worker)
             if then is not None:
                 then()

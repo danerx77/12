@@ -32,7 +32,7 @@ Jedno okno, siedem zakładek (jak w Supervertaler Workbench):
 | Zakładka | Zawartość |
 |---|---|
 | 🤖 **AI** | dziennik pracy modelu, podgląd polecenia, wytyczne, test tłumaczenia |
-| 📝 **Edytor** | lista plików **z licznikiem postępu na bieżąco** (`plik.txt (91/1000 • 9%)`, ✅ przy ukończonych) **+ własne znaczniki plików** (✓ sprawdzone / ⚠️ uwaga / ✗ problem, klik prawym) • siatka segmentów • edytor źródło/cel • **panele po prawej: wybór układu** (wszystko naraz / **zakładki pionowe, po lewej**) **+ wybór, które panele się pokazują** **+ regulacja czcionki** • **szerokości kolumn zapamiętywane** i **widoczne uchwyty** do przeciągania |
+| 📝 **Edytor** | lista plików **z licznikiem postępu na bieżąco** (`plik.txt (91/1000 • 9%)`, ✅ przy ukończonych) **+ własne znaczniki plików** (✓ sprawdzone / ⚠️ uwaga / ✗ problem, klik prawym) • siatka segmentów • edytor źródło/cel • **panele po prawej: wybór układu** (wszystko naraz / **zakładki pionowe, po lewej**) **+ wybór, które panele się pokazują** **+ regulacja czcionki** • **szerokości kolumn zapamiętywane** i **widoczne uchwyty** do przeciągania • **kolumny siatki przesuwne myszą** (sąsiad ustępuje miejsca, prawy przycisk na nagłówku = dopasowanie/reset) |
 | 💾 **Pamięć TM** | **Lista pamięci** (baza projektu, pliki TMX z folderu `tm/` oraz pamięci zaimportowane z innych lokalizacji) oraz **Przeglądaj i edytuj** – edycja wpisów dwuklikiem bezpośrednio w tabeli, import/eksport TMX |
 | 🏷️ **Glosariusz** | termbaza projektu, import/eksport CSV |
 | 📖 **Słowniki** | słowniki Hunspell/txt, sprawdzanie pisowni |
@@ -646,6 +646,23 @@ oznacza wynik jako niepełny:
 
 Propozycje nie są usuwane — bywają przydatne jako podpowiedź samego terminu.
 
+### Znaczniki nie giną z propozycji
+
+Segment rzadko jest gołym zdaniem — na końcu bywa znacznik gry (`<<kon>>`, `{PLAYER}`,
+`{STR_VAR_1}`), a wpis w pamięci jest bez niego. Wtedy propozycja traciła znacznik
+i wstawienie jej psuło plik:
+
+```segment:     when we decided to have 1 room.<<kon>>
+dawniej:      gdy zdecydowaliśmy mieć 1 salę.            ← «<<kon>>» przepadło
+teraz:        gdy zdecydowaliśmy mieć 1 salę.<<kon>>```
+
+Znaczniki stojące na brzegu dopasowanego fragmentu są teraz **doklejane do propozycji**
+(helper `preserve_edge_codes`, wszystkie ścieżki dopasowania). Dodatkowo:
+
+* ten sam tekst nie pojawia się **dwa razy** (osobno ze ścieżki dokładnej i rozmytej),
+* propozycja z przełamanego segmentu dostaje przełamanie z powrotem,
+  gdy tłumaczenie jest dłuższe niż najdłuższa linia oryginału.
+
 ## Pilnowanie, żeby w TM były tylko prawdziwe tłumaczenia
 
 *Ustawienia → 💾 Pamięć TM → **„Nie zapisuj do TM tekstów, które zostały w języku źródłowym”***
@@ -962,6 +979,73 @@ Poprawione:
 
 To samo zabezpieczenie działa w panelu **AI** i w **edytorze TMX**, gdzie panele dzielą się
 w pionie.
+
+### Przełączanie układu prawej kolumny (wszystko naraz / zakładki)
+
+Wybór układu jest w *Ustawienia → Wygląd → Panel prawy edytora*. Przełączanie działa teraz
+bez dwóch przykrych skutków, które zgłaszano:
+
+| Dawniej | Teraz |
+|---|---|
+| po zmianie układu prawa kolumna zwężała się do minimum (180 px) | **szerokość zostaje taka, jaką ustawiłeś** — splitter nie przelicza jej od nowa |
+| panele po przełączeniu zostawały ukryte (prawa strona „nic nie wyświetlała”) | **każdy panel jest pokazywany z powrotem** po włożeniu do nowego kontenera |
+
+Powód drugiego był w Qt: wypięcie widgetu (`setParent(None)`) chowa go „na sztywno”, a
+`QTabWidget` dodatkowo chowa wszystkie karty poza bieżącą — po powrocie do układu
+„wszystko naraz” żaden panel już nie wracał na ekran.
+
+### Wysokość paneli po prawej
+
+W układzie „wszystko naraz” panele (Dopasowania TM, Dopasowanie zdań, Terminy,
+Konkordancja, MT, Język, Notatki) dzieliły się po równo i **nie było czego złapać** —
+nie dało się powiększyć „Dopasowań TM” kosztem pozostałych. Teraz między panelami jest
+widoczny uchwyt (8 px, ten sam styl co w kolumnach edytora):
+
+* przeciągasz, żeby powiększyć panel, nad którym pracujesz,
+* wysokości są **zapamiętywane** (ustawienie `editor.panel.heights`) i wracają po
+  przełączeniu układu oraz po ponownym uruchomieniu,
+* żaden panel nie da się zwinąć do zera (minimum 60 px),
+* *Widok → ↺ Przywróć układ paneli* wraca do równego podziału.
+
+### Czcionki — prawy panel i cały interfejs
+
+| Ustawienie (Ustawienia → Wygląd) | Co zmienia |
+|---|---|
+| **Czcionka interfejsu** (`ui.font.size`) | wielkość czcionki w **całym programie**: menu, zakładki, tabele, przyciski, listy. 0 = domyślna z motywu. Skróty: `Ctrl+Shift++` / `Ctrl+Shift+−` |
+| **Rozmiar czcionki edytora** (`editor.font.size`) | tylko pola źródła i tłumaczenia (`Ctrl++` / `Ctrl+−`) |
+| **Czcionka paneli** (`tm.panel.font.size`) | **cały prawy panel** — listy, etykiety, przyciski, podgląd MT, notatki (dawniej tylko cztery listy, więc zmiana była ledwo widoczna) |
+
+Zmiana działa od razu, bez restartu. Gdy czcionka panelu jest ustawiona na 0, panel
+rośnie razem z czcionką interfejsu.
+
+### Zastosuj TM ponownie (także do przetłumaczonych)
+
+Zwykłe „Zastosuj TM” uzupełnia tylko puste segmenty. Gdy do pamięci doszły lepsze
+wpisy, przydaje się druga opcja — w menu podręcznym **listy plików** (prawy przycisk
+na pliku) oraz w menu *Projekt*:
+
+> 🔁 **Zastosuj TM ponownie – „plik” (N z tłumaczeniem)**
+
+Podmienia istniejące tłumaczenia na najlepsze dopasowanie z TM. Przed zmianą program
+pyta, ile segmentów obejmie. Segmentów **★ zatwierdzonych nie rusza**, a status
+przetłumaczonego segmentu nie spada do „roboczego”.
+
+## Szerokości kolumn siatki segmentów
+
+Kolumny siatki (`#`, **Tekst źródłowy**, **Tłumaczenie**, **Status**) przesuwa się myszą,
+chwytając krawędź w nagłówku:
+
+* przesunięcie krawędzi **rozszerza jedną kolumnę, a sąsiad oddaje jej miejsce** — siatka
+  zawsze mieści się w oknie, nie pojawia się poziomy pasek przewijania,
+* przy zmianie szerokości okna wolne miejsce dzielone jest **proporcjonalnie** do tego,
+  jak ustawiłeś kolumny (domyślnie pół na pół między źródłem a tłumaczeniem),
+* szerokości są **zapamiętywane** (ustawienie `editor.grid.columns`) i wracają po
+  ponownym uruchomieniu programu,
+* **prawy przycisk na nagłówku** → *↔ Dopasuj kolumny do okna* albo
+  *↺ Domyślne szerokości kolumn* (55 / 400 / 400 / 150 px).
+
+Dawniej dwie środkowe kolumny były w trybie `Stretch`, a w tym trybie Qt w ogóle nie pozwala
+zmienić szerokości — nawet programowo — więc kolumn naprawdę „nie dało się” przesunąć.
 
 ## Pliki projektu — zaznaczanie wielu i kolejność
 
@@ -1692,6 +1776,15 @@ główny wyłącznik i szczegółowe przełączniki kontroli języka,
 porządkowanie wyniku MT bez gubienia znaczników oraz reguły odmiany w poleceniu dla AI,
 odporność `size()` na równoległy zapis, glosariusz, QA, eksport oraz pełny przepływ pracy w GUI
 (wpisanie tłumaczenia → zatwierdzenie → zapis → ponowne otwarcie projektu). Wszystkie przechodzą.
+
+Są też testy na obie rzeczy naprawione w tej wersji: **przeciąganie kolumn siatki**
+(każda kolumna, także ostatnia; szerokości zapisane i przywrócone; menu nagłówka) oraz
+**przełączanie układu prawego panelu** — prawa kolumna zachowuje szerokość, a panele po
+zmianie są widoczne („wszystko naraz” ⇄ „zakładki”, wielokrotnie). Do tego testy
+**przeciągania wysokości paneli**, **„Zastosuj TM ponownie”** (podmiana istniejącego
+tłumaczenia, ochrona zatwierdzonych, uzupełnianie pustych), **czcionek** (panel i cały
+interfejs) oraz **dopasowania zdań ze znacznikami** (`<<kon>>` nie ginie, brak
+duplikatów, ostrzeżenie o resztkach tekstu źródłowego).
 
 Benchmark wydajności TM:
 

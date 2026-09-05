@@ -4502,6 +4502,107 @@ Dziękujemy za korzystanie z MYSTERY"""
     w.editor_tab.apply_panel_layout()
     app.processEvents()
 
+    # --- kolumny siatki przesuwne + przełączanie układu bez pustej prawej ---
+    print("\n24m. Szerokości kolumn siatki: przeciąganie, pamięć, przełączanie układu")
+    from PyQt6.QtCore import QEvent as _QEv24, QPoint as _QPoint24, QPointF as _QPointF24
+    from PyQt6.QtCore import Qt as _Qt24
+    from PyQt6.QtGui import QMouseEvent as _QMEv24
+    from PyQt6.QtWidgets import QHeaderView as _QHV24, QTabWidget as _QTW24
+
+    _grid24 = w.editor_tab.grid
+    _hdr24 = _grid24.horizontalHeader()
+    check("siatka: kolumny przesuwne myszą (Interactive, nie Stretch/Fixed)",
+          all(_hdr24.sectionResizeMode(c) == _QHV24.ResizeMode.Interactive
+              for c in range(_grid24.columnCount())),
+          str([_hdr24.sectionResizeMode(c) for c in range(_grid24.columnCount())]))
+
+    def _drag_header(col, dx):
+        """Prawdziwe zdarzenia myszy: przesuwa prawą krawędź kolumny o dx px."""
+        vp = _hdr24.viewport()
+        x0 = _hdr24.sectionViewportPosition(col) + _grid24.columnWidth(col)
+
+        def send(kind, x):
+            app.sendEvent(vp, _QMEv24(kind, _QPointF24(_QPoint24(x, 8)),
+                                      _Qt24.MouseButton.LeftButton,
+                                      _Qt24.MouseButton.LeftButton,
+                                      _Qt24.KeyboardModifier.NoModifier))
+        send(_QEv24.Type.MouseButtonPress, x0)
+        send(_QEv24.Type.MouseMove, x0 + dx // 2)
+        send(_QEv24.Type.MouseMove, x0 + dx)
+        send(_QEv24.Type.MouseButtonRelease, x0 + dx)
+        app.processEvents()
+
+    _w0 = [_grid24.columnWidth(c) for c in range(4)]
+    _drag_header(1, 120)
+    _w1 = [_grid24.columnWidth(c) for c in range(4)]
+    check("kolumny: przeciągnięcie krawędzi naprawdę zmienia szerokość",
+          _w1[1] > _w0[1] + 60, f"{_w0} -> {_w1}")
+    check("kolumny: sąsiad ustępuje miejsca (szerokość siatki bez zmian)",
+          abs(sum(_w1) - _grid24.viewport().width()) <= 2,
+          f"{sum(_w1)} vs {_grid24.viewport().width()}")
+    check("kolumny: nie pojawia się poziomy pasek przewijania",
+          not _grid24.horizontalScrollBar().isVisible())
+    _drag_header(0, 40)
+    _w2 = [_grid24.columnWidth(c) for c in range(4)]
+    check("kolumny: da się poszerzyć pierwszą (#)", _w2[0] > _w0[0] + 20,
+          f"{_w1} -> {_w2}")
+    _drag_header(2, -80)
+    _w3 = [_grid24.columnWidth(c) for c in range(4)]
+    check("kolumny: da się poszerzyć ostatnią (Status)", _w3[3] > _w2[3] + 40,
+          f"{_w2} -> {_w3}")
+
+    # zapamiętane szerokości (menu nagłówka + ustawienia)
+    w.editor_tab._save_grid_columns()
+    _grid24.setColumnWidth(1, 90)
+    app.processEvents()
+    w.editor_tab._restore_grid_columns()
+    app.processEvents()
+    check("kolumny: szerokości wracają po ponownym uruchomieniu",
+          abs(_grid24.columnWidth(1) - _w3[1]) <= 2,
+          f"{_grid24.columnWidth(1)} vs {_w3[1]}")
+    w.editor_tab.reset_grid_columns()
+    app.processEvents()
+    check("kolumny: menu nagłówka przywraca domyślne szerokości",
+          _grid24.columnWidth(0) == w.editor_tab.DEFAULT_GRID_COLUMNS[0],
+          str([_grid24.columnWidth(c) for c in range(4)]))
+
+    # przełączanie układu: szerokość prawej kolumny i widoczność paneli
+    _before24 = list(w.editor_tab.main_splitter.sizes())
+    smgr2.set("tm.panel.layout", "tabs")
+    w.editor_tab.apply_panel_layout()
+    app.processEvents()
+    _tabs24 = list(w.editor_tab.main_splitter.sizes())
+    check("przełączanie: prawa kolumna nie zwęża się do minimum (zakładki)",
+          abs(_tabs24[2] - _before24[2]) <= 8, f"{_before24} -> {_tabs24}")
+    _c24 = w.editor_tab._right_container
+    check("przełączanie: w zakładkach aktywna karta jest widoczna",
+          isinstance(_c24, _QTW24) and _c24.count() == 7
+          and _c24.currentWidget().isVisible()
+          and _c24.currentWidget().width() > 100,
+          str([_c24.widget(i).isVisible() for i in range(_c24.count())]))
+    smgr2.set("tm.panel.layout", "stacked")
+    w.editor_tab.apply_panel_layout()
+    app.processEvents()
+    _stack24 = list(w.editor_tab.main_splitter.sizes())
+    check("przełączanie: prawa kolumna nie zwęża się do minimum (wszystko naraz)",
+          abs(_stack24[2] - _before24[2]) <= 8, f"{_before24} -> {_stack24}")
+    _hidden24 = [t for t, wg, _k in w.editor_tab._right_panels if not wg.isVisible()]
+    check("przełączanie: panele są widoczne po powrocie (prawa strona nie pusta)",
+          not _hidden24, str(_hidden24))
+    check("przełączanie: panel ma sensowną szerokość (nie 180 px minimum)",
+          w.editor_tab.matches_list.width() > 150,
+          str(w.editor_tab.matches_list.width()))
+    for _mode24 in ("tabs", "stacked", "tabs", "stacked"):
+        smgr2.set("tm.panel.layout", _mode24)
+        w.editor_tab.apply_panel_layout()
+        app.processEvents()
+    check("przełączanie: wielokrotne zmiany nie zwężają prawej kolumny",
+          w.editor_tab.main_splitter.sizes()[2] >= max(180, _before24[2] - 40),
+          str(w.editor_tab.main_splitter.sizes()))
+    smgr2.set("tm.panel.layout", "stacked")
+    w.editor_tab.apply_panel_layout()
+    app.processEvents()
+
     # ---------------------------- Nawigacja klawiszami
     print("\n24b. Strzałki i zaznaczanie w siatce")
     from PyQt6.QtTest import QTest as _QTest
@@ -5798,6 +5899,178 @@ Dziękujemy za korzystanie z MYSTERY"""
     check("wyłączenie filtru przywraca pełną listę",
           len([1 for i in range(picker.count())]) == len(_ENGINES),
           str(picker.count()))
+
+    # --- wysokości paneli po prawej, TM ponownie, czcionki interfejsu ---
+    print("\n28. Wysokości paneli po prawej, TM ponownie, czcionki interfejsu")
+    from PyQt6.QtWidgets import QSplitter as _QSplit28, QSpinBox as _QSpin28, QLabel as _QLabel28
+
+    smgr2.set("tm.panel.layout", "stacked")
+    w.editor_tab.apply_panel_layout()
+    app.processEvents()
+    _stack28 = w.editor_tab._right_stack
+    check("panel: wysokości przesuwne (pionowy splitter zamiast równego podziału)",
+          isinstance(_stack28, _QSplit28)
+          and _stack28.orientation() == Qt.Orientation.Vertical
+          and _stack28.count() == 7,
+          f"{type(_stack28).__name__} / {_stack28.count() if _stack28 else 0}")
+    check("panel: uchwyt wysokości jest widoczny i opisany",
+          _stack28.handleWidth() >= 8 and bool(_stack28.handle(0).styleSheet())
+          and "wysokość" in _stack28.handle(0).toolTip(),
+          f"{_stack28.handleWidth()} px / {_stack28.handle(0).toolTip()[:36]!r}")
+    _h_before28 = list(_stack28.sizes())
+    _big28 = int(sum(_h_before28) * 0.4)
+    _rest28 = (sum(_h_before28) - _big28) // (_stack28.count() - 1)
+    _stack28.setSizes([_big28] + [_rest28] * (_stack28.count() - 1))
+    app.processEvents()
+    w.editor_tab._save_panel_heights()
+    check("panel: pierwszy panel da się powiększyć (przeciągnięcie)",
+          w.editor_tab._right_stack.sizes()[0] > _h_before28[0] + 50,
+          f"{_h_before28[:2]} -> {w.editor_tab._right_stack.sizes()[:2]}")
+    for _mode28 in ("tabs", "stacked"):
+        smgr2.set("tm.panel.layout", _mode28)
+        w.editor_tab.apply_panel_layout()
+        app.processEvents()
+    check("panel: wysokości wracają po przełączeniu układu",
+          abs(w.editor_tab._right_stack.sizes()[0] - _big28) <= 12,
+          f"{_big28} vs {w.editor_tab._right_stack.sizes()[0]}")
+    w.editor_tab.reset_panel_heights()
+    app.processEvents()
+    _eq28 = w.editor_tab._right_stack.sizes()
+    check("panel: reset daje równy podział wysokości", max(_eq28) - min(_eq28) <= 2, str(_eq28))
+
+    # --- TM ponownie, także do segmentów już przetłumaczonych ---
+    from supercat.core.project import ProjectManager as _PM28
+    _pm28 = ProjectManager.instance()
+    _prev_project28 = _pm28.current
+    _proj28 = _pm28.create_project("TMAgain", "en", "pl", os.path.join(tmp, "tm_again"))
+    aw = MainWindow()
+    _pm28.current = _proj28
+    aw.tm.init_for_project(_proj28.tm_path)
+    aw.editor_tab.set_segments([
+        Segment(1, "Hello world.", "stare tłumaczenie", "again.txt"),
+        Segment(2, "Good morning.", "", "again.txt"),
+        Segment(3, "Thank you.", "zatwierdzone", "again.txt"),
+    ])
+    aw.editor_tab.segments[2].status = "approved"
+    for _s28, _t28 in (("Hello world.", "Witaj świecie."),
+                       ("Good morning.", "Dzień dobry."),
+                       ("Thank you.", "Dziękuję.")):
+        aw.tm.add(_s28, _t28, "en", "pl")
+    aw.apply_tm_to_all(silent=True, include_translated=True)
+    for _wk28 in list(aw._workers):
+        _wk28.wait(15000)
+    app.processEvents()
+    check("TM ponownie: podmienia istniejące tłumaczenie",
+          aw.editor_tab.segments[0].target == "Witaj świecie.",
+          repr(aw.editor_tab.segments[0].target))
+    check("TM ponownie: uzupełnia puste segmenty",
+          aw.editor_tab.segments[1].target == "Dzień dobry.",
+          repr(aw.editor_tab.segments[1].target))
+    check("TM ponownie: nie rusza zatwierdzonych ★",
+          aw.editor_tab.segments[2].target == "zatwierdzone",
+          repr(aw.editor_tab.segments[2].target))
+    check("menu plików: jest pozycja „Zastosuj TM ponownie”",
+          hasattr(w.editor_tab, "_reapply_tm_to_file")
+          and hasattr(w, "apply_tm_to_all"))
+    # zwykłe „Zastosuj TM” nadal pomija to, co już przetłumaczone
+    aw.editor_tab.set_segments([Segment(1, "Hello world.", "moje tłumaczenie", "again.txt")])
+    aw.apply_tm_to_all(silent=True)
+    for _wk28 in list(aw._workers):
+        _wk28.wait(15000)
+    app.processEvents()
+    check("TM: zwykłe zastosowanie NIE nadpisuje tłumaczenia",
+          aw.editor_tab.segments[0].target == "moje tłumaczenie",
+          repr(aw.editor_tab.segments[0].target))
+    _pm28.current = _prev_project28
+
+    # --- czcionki: prawy panel i cały interfejs ---
+    _app28 = QApplication.instance()
+    _base_ui28 = _app28.font().pointSize()
+    smgr2.set("tm.panel.font.size", 0)
+    w.editor_tab.apply_panel_font()
+    app.processEvents()
+    smgr2.set("tm.panel.font.size", 18)
+    w.editor_tab.apply_panel_font()
+    app.processEvents()
+    _hints28 = [x for x in w.editor_tab.sentence_list.parent().findChildren(_QLabel28)
+                if "font-size" in x.styleSheet()]
+    check("czcionka panelu: listy i etykiety rosną razem",
+          w.editor_tab.matches_list.font().pointSize() == 18
+          and w.editor_tab.matches_info.font().pointSize() == 18,
+          f"{w.editor_tab.matches_list.font().pointSize()} / "
+          f"{w.editor_tab.matches_info.font().pointSize()}")
+    check("czcionka panelu: podpowiedź z własnym arkuszem też rośnie",
+          bool(_hints28) and "font-size: 2" in _hints28[-1].styleSheet(),
+          _hints28[-1].styleSheet() if _hints28 else "brak")
+    smgr2.set("tm.panel.font.size", 0)
+    w.editor_tab.apply_panel_font()
+    app.processEvents()
+    check("czcionka panelu: powrót do domyślnej przywraca arkusz",
+          bool(_hints28) and "11px" in _hints28[-1].styleSheet(),
+          _hints28[-1].styleSheet() if _hints28 else "brak")
+
+    smgr2.set("ui.font.size", 16)
+    w.apply_ui_font()
+    app.processEvents()
+    check("czcionka interfejsu: arkusz motywu dostaje nowy rozmiar (16 pkt = 21 px)",
+          "font-size: 21px" in _app28.styleSheet(), _app28.styleSheet()[:60])
+    check("czcionka interfejsu: aplikacja ma nową czcionkę",
+          _app28.font().pointSize() == 16, str(_app28.font().pointSize()))
+    check("czcionka interfejsu: prawy panel rośnie razem z nią",
+          w.editor_tab.matches_list.font().pointSize() == 16,
+          str(w.editor_tab.matches_list.font().pointSize()))
+    w.change_ui_font(1)
+    app.processEvents()
+    check("czcionka interfejsu: powiększanie z menu działa",
+          smgr2.get_int("ui.font.size", 0) == 17
+          and "font-size: 23px" in _app28.styleSheet(),
+          str(smgr2.get_int("ui.font.size", 0)))
+    w.change_ui_font(-1)
+    smgr2.set("ui.font.size", 0)
+    w.apply_ui_font()
+    app.processEvents()
+    check("czcionka interfejsu: powrót do domyślnej",
+          "font-size: 13px" in _app28.styleSheet()
+          and _app28.font().pointSize() == _base_ui28,
+          f"{_app28.font().pointSize()} vs {_base_ui28}")
+    check("ustawienia: spinbox czcionki interfejsu",
+          isinstance(getattr(w.settings_tab, "ui_font_size", None), _QSpin28))
+
+    # --- dopasowanie zdań: znaczniki, duplikaty, resztki tekstu źródłowego ---
+    print("\n28b. Dopasowanie zdań: znaczniki, duplikaty, resztki źródła")
+    from supercat.core.tm import TranslationMemory as _TM28
+    from supercat.core.tm import preserve_edge_codes as _keep_codes28
+
+    _sm_sent28 = smgr2.get_bool("tm.sentence.matching.enabled", False)
+    _tm28 = _TM28()
+    _tm28.init_for_project(os.path.join(tmp, "tm_tags"))
+    _tm28.add("when we decided to have 1 room.", "gdy zdecydowaliśmy mieć 1 salę.", "en", "pl")
+    _tm28.add("The room is ready.", "Pokój jest gotowy.", "en", "pl")
+    smgr2.set("tm.sentence.matching.enabled", True)
+    _res28 = _tm28.find_sentence_matches("when we decided to have 1 room.<<kon>>")
+    check("zdania: znacznik <<kon>> nie ginie z propozycji",
+          bool(_res28) and _res28[0].assembled.endswith("<<kon>>"),
+          str([m.assembled for m in _res28]))
+    check("zdania: ta sama propozycja nie pojawia się dwa razy",
+          len({m.assembled for m in _res28}) == len(_res28),
+          str([m.assembled for m in _res28]))
+    check("zdania: nie ma wersji bez znacznika obok wersji z nim",
+          all("<<kon>>" in m.assembled for m in _res28) or not _res28,
+          str([m.assembled for m in _res28]))
+    _res28b = _tm28.find_sentence_matches("The room\\nis ready.")
+    check("zdania: resztki tekstu źródłowego dostają ostrzeżenie (partial)",
+          any(m.partial for m in _res28b),
+          str([(m.assembled, m.partial) for m in _res28b]))
+    check("zdania: pełna propozycja jest przed tymi z resztkami",
+          bool(_res28b) and not _res28b[0].partial,
+          str([(m.assembled, m.partial) for m in _res28b]))
+    check("zdania: helper dokleja znacznik z brzegu",
+          _keep_codes28("salę.<<kon>>", "1 room.") == "1 room.<<kon>>",
+          _keep_codes28("salę.<<kon>>", "1 room."))
+    check("zdania: znacznik już obecny nie jest dublowany",
+          _keep_codes28("salę.<<kon>>", "1 room.<<kon>>") == "1 room.<<kon>>",
+          _keep_codes28("salę.<<kon>>", "1 room.<<kon>>"))
+    smgr2.set("tm.sentence.matching.enabled", _sm_sent28)
 
     # ------------------------------------------------------------ podsumowanie
     print("\n" + "=" * 60)
