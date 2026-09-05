@@ -4327,14 +4327,14 @@ Dziękujemy za korzystanie z MYSTERY"""
     check("panel: wszystko widoczne (scroll, nie zakładki)",
           hasattr(w.editor_tab, "apply_panel_font"))
     check("ustawienia: czcionka paneli + opcja długich linii",
-          hasattr(w.settings_tab, "panel_font_size")
+          "tm.panel.font.size" in getattr(w.settings_tab, "panel_font_sizes", {})
           and hasattr(w.settings_tab, "fix_long_lines"))
-    w.settings_tab.panel_font_size.setValue(14)
+    w.settings_tab.panel_font_sizes["tm.panel.font.size"].setValue(14)
     w.editor_tab.apply_panel_font()
     check("czcionka: zmiana trafia do paneli TM",
           w.editor_tab.matches_list.font().pointSize() == 14,
           str(w.editor_tab.matches_list.font().pointSize()))
-    w.settings_tab.panel_font_size.setValue(0)
+    w.settings_tab.panel_font_sizes["tm.panel.font.size"].setValue(0)
     w.editor_tab.apply_panel_font()
 
     # --- wielkość liter WNIETRZ linii + układ panelu + ikona ---
@@ -4406,7 +4406,8 @@ Dziękujemy za korzystanie z MYSTERY"""
         page_tm = w.settings_tab.widget(next(
             i for i in range(w.settings_tab.count())
             if "Pamięć TM" in w.settings_tab.tabText(i)))
-        for cand in (w.settings_tab.panel_layout_combo, w.settings_tab.panel_font_size):
+        for cand in (w.settings_tab.panel_layout_combo,
+                     w.settings_tab.panel_font_sizes["tm.panel.font.size"]):
             p = cand.parent()
             while p is not None:
                 if p is page_tm:
@@ -4436,7 +4437,8 @@ Dziękujemy za korzystanie z MYSTERY"""
           and _on_appearance(w.settings_tab.font_size))
     check("wygląd: panel prawy (układ + widoczność + czcionka) w zakładce",
           _on_appearance(w.settings_tab.panel_layout_combo)
-          and _on_appearance(w.settings_tab.panel_font_size))
+          and _on_appearance(
+              w.settings_tab.panel_font_sizes["tm.panel.font.size"]))
     check("wygląd: znaki specjalne w zakładce",
           _on_appearance(w.settings_tab.markers_spaces)
           and _on_appearance(w.settings_tab.markers_style))
@@ -5946,11 +5948,12 @@ Dziękujemy za korzystanie z MYSTERY"""
     aw = MainWindow()
     _pm28.current = _proj28
     aw.tm.init_for_project(_proj28.tm_path)
-    aw.editor_tab.set_segments([
-        Segment(1, "Hello world.", "stare tłumaczenie", "again.txt"),
-        Segment(2, "Good morning.", "", "again.txt"),
-        Segment(3, "Thank you.", "zatwierdzone", "again.txt"),
-    ])
+    _segs28 = [Segment(1, "Hello world.", "stare tłumaczenie", ""),
+               Segment(2, "Good morning.", "", ""),
+               Segment(3, "Thank you.", "zatwierdzone", "")]
+    for _sg in _segs28:
+        _sg.file_name = "again.txt"
+    aw.editor_tab.set_segments(_segs28)
     aw.editor_tab.segments[2].status = "approved"
     for _s28, _t28 in (("Hello world.", "Witaj świecie."),
                        ("Good morning.", "Dzień dobry."),
@@ -6071,6 +6074,82 @@ Dziękujemy za korzystanie z MYSTERY"""
           _keep_codes28("salę.<<kon>>", "1 room.<<kon>>") == "1 room.<<kon>>",
           _keep_codes28("salę.<<kon>>", "1 room.<<kon>>"))
     smgr2.set("tm.sentence.matching.enabled", _sm_sent28)
+
+    # --- oznaczenie „do przetłumaczenia” + pamięć miejsca pracy w pliku ---
+    print("\n28c. Oznaczenie „do przetłumaczenia” i powrót do miejsca")
+    from supercat.ui.editor_tab import STATUS_LABELS as _STATUS28
+
+    check("status „do przetłumaczenia” istnieje",
+          "todo" in _STATUS28 and "przetłumaczenia" in _STATUS28["todo"],
+          str(_STATUS28.get("todo")))
+    _et = w.editor_tab
+    _segs28c = []
+    for _i, (_src, _plik) in enumerate(
+            (("Pierwszy.", "plik_a.txt"), ("Drugi.", "plik_a.txt"),
+             ("Trzeci.", "plik_a.txt"), ("Czwarty.", "plik_b.txt")), start=1):
+        _s = Segment(_i, _src, "", "")
+        _s.file_name = _plik
+        _segs28c.append(_s)
+    _et.set_segments(_segs28c)
+    _changed = _et.set_status([1], "todo")
+    check("oznaczenie segmentu „do przetłumaczenia”",
+          _changed == 1 and _et.segments[1].status == "todo",
+          f"{_changed} / {_et.segments[1].status}")
+    _et.status_filter.setCurrentText("Do przetłumaczenia")
+    _et.refresh_grid()
+    check("filtr „Do przetłumaczenia” pokazuje tylko oznaczone",
+          _et.grid.rowCount() == 1, str(_et.grid.rowCount()))
+    _et.status_filter.setCurrentText("Wszystkie")
+    _et.refresh_grid()
+    _et.load_segment(0)
+    _et.next_todo()
+    check("skok do następnego „do przetłumaczenia”",
+          _et.current_index == 1, str(_et.current_index))
+
+    _et._file_filter = "plik_a.txt"
+    _et.load_segment(2)
+    _et._save_last_segment()
+    _et._file_filter = "plik_b.txt"
+    _et.load_segment(3)
+    _et._save_last_segment()
+    _et._file_filter = "plik_a.txt"
+    _et.load_segment(0)
+    _et._restore_last_segment()
+    check("powrót do segmentu, na którym skończono w pliku",
+          _et.current_index == 2, str(_et.current_index))
+    _et._file_filter = "plik_b.txt"
+    _et._restore_last_segment()
+    check("każdy plik pamięta swoje miejsce osobno",
+          _et.current_index == 3, str(_et.current_index))
+    smgr2.set("editor.last.segment", "{}")
+    _et._file_filter = None
+
+    # --- czcionka osobno dla każdego panelu ---
+    smgr2.set("tm.panel.font.matches", 20)
+    smgr2.set("tm.panel.font.terms", 0)
+    _et.apply_panel_font()
+    check("czcionka jednego panelu nie zmienia drugiego",
+          _et.matches_list.font().pointSize() == 20
+          and _et.terms_list.font().pointSize() != 20,
+          f"TM: {_et.matches_list.font().pointSize()}, "
+          f"terminy: {_et.terms_list.font().pointSize()}")
+    smgr2.set("tm.panel.font.matches", 0)
+    _et.apply_panel_font()
+    check("zero w panelu = czcionka interfejsu",
+          _et.matches_list.font().pointSize()
+          == QApplication.instance().font().pointSize(),
+          f"{_et.matches_list.font().pointSize()} vs "
+          f"{QApplication.instance().font().pointSize()}")
+
+    # --- znaczniki nie są pokazywane w panelu dopasowania zdań ---
+    from supercat.core.tm import strip_codes_for_display as _clean28
+    check("podgląd propozycji jest bez znaczników",
+          _clean28("gdy zdecydowaliśmy mieć 1 salę.<<kon>>")
+          == "gdy zdecydowaliśmy mieć 1 salę.",
+          _clean28("gdy zdecydowaliśmy mieć 1 salę.<<kon>>"))
+    check("podgląd usuwa też {ZMIENNE}",
+          _clean28("Witaj, {PLAYER}!<<kon>>") == "Witaj, !",
+          _clean28("Witaj, {PLAYER}!<<kon>>"))
 
     # ------------------------------------------------------------ podsumowanie
     print("\n" + "=" * 60)

@@ -214,6 +214,8 @@ class MainWindow(QMainWindow):
         project_menu.addSeparator()
         status_menu = project_menu.addMenu("🏷️ Oznacz zaznaczone jako")
         self._add_action(status_menu, "○ nowy", None, lambda: self.editor_tab.mark_new())
+        self._add_action(status_menu, "🔵 do przetłumaczenia", None,
+                         lambda: self.editor_tab.mark_todo(), shortcut_key="mark_todo")
         self._add_action(status_menu, "✎ roboczy", None, lambda: self.editor_tab.mark_draft())
         self._add_action(status_menu, "✓ przetłumaczony", None,
                          lambda: self.editor_tab.mark_translated())

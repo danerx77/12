@@ -62,7 +62,7 @@ class SettingsTab(QTabWidget):
         """Wygląd: motyw, czcionki, znaki specjalne, panel prawy."""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        appearance = QGroupBox("Zagrożenia")
+        appearance = QGroupBox("🎨 Motyw i czcionki")
         form = QFormLayout(appearance)
         self.theme_combo = QComboBox()
         self.theme_combo.setMaximumWidth(220)
@@ -106,9 +106,48 @@ class SettingsTab(QTabWidget):
         form.addRow("Rozmiar czcionki edytora:", self.font_size)
         layout.addWidget(appearance)
 
+        # --- czcionki paneli po prawej: wszystkie naraz i każdy z osobna ---
+        panels_font = QGroupBox("🔤 Czcionka paneli po prawej (dopasowania TM, zdania, …)")
+        pf_l = QVBoxLayout(panels_font)
+        pf_l.setContentsMargins(8, 8, 8, 8)
+        pf_hint = QLabel("Zero = czcionka interfejsu (czyli „normalnie”). "
+                         "Własny rozmiar panelu jest ważniejszy niż wspólny.")
+        pf_hint.setWordWrap(True)
+        pf_hint.setStyleSheet("color: gray;")
+        pf_l.addWidget(pf_hint)
+
+        self.panel_font_sizes: dict = {}
+        for key, label in (("", "Wszystkie panele (wspólna)"),
+                           ("matches", "Dopasowania TM"),
+                           ("sentences", "Dopasowanie zdań"),
+                           ("terms", "Terminy / glosariusz"),
+                           ("conc", "Konkordancja"),
+                           ("mt", "Tłumaczenie maszynowe"),
+                           ("lang", "Język"),
+                           ("notes", "Notatki")):
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.addWidget(QLabel(label))
+            spin = QSpinBox()
+            spin.setRange(0, 32)
+            spin.setSuffix(" pkt")
+            setting_key = "tm.panel.font.size" if not key else f"tm.panel.font.{key}"
+            spin.setValue(self.settings.get_int(setting_key, 0))
+            spin.setToolTip(f"{label}: 0 = rozmiar z motywu / całego interfejsu")
+            spin.valueChanged.connect(
+                lambda v, k=setting_key: (self.settings.set(k, v),
+                                          self._apply_panel_font()))
+            row.addWidget(spin, 1)
+            self.panel_font_sizes[setting_key] = spin
+            pf_l.addLayout(row)
+
+        reset_fonts = QPushButton("↺ Domyślne (wszędzie zero)")
+        reset_fonts.setToolTip("Wstawia 0 wszędzie — panele wracają do czcionki interfejsu.")
+        reset_fonts.clicked.connect(self._reset_panel_fonts)
+        pf_l.addWidget(reset_fonts)
+        layout.addWidget(panels_font)
 
         markers_box = QGroupBox("Znaki specjalne w tabelach")
-        markers_box.setStyleSheet("QGroupBox { font-size: 11px; color: #666; }")
         mform = QFormLayout(markers_box)
         # znaki specjalne (przeniesione do zakładki Wygląd)
         self.markers_spaces = QCheckBox("Pokazuj znaki spacji i tabulatora (␣ →) na brzegach")
@@ -153,24 +192,6 @@ class SettingsTab(QTabWidget):
         mform.addRow(self.highlight_ws)
 
         layout.addWidget(markers_box)
-        font_row = QWidget()
-        font_form = QHBoxLayout(font_row)
-        font_form.setContentsMargins(0, 0, 0, 0)
-        self.panel_font_size = QSpinBox()
-        self.panel_font_size.setRange(0, 24)
-        self.panel_font_size.setSuffix(" pkt (0 = domyślna)")
-        self.panel_font_size.setToolTip(
-            "Wielkość czcionki w CAŁYM prawym panelu — Dopasowania TM,\n"
-            "Dopasowanie zdań, Terminy, Konkordancja, MT, Język, Notatki\n"
-            "(etykiety i przyciski też). Zero = czcionka interfejsu.")
-        self.panel_font_size.setValue(
-            self.settings.get_int("tm.panel.font.size", 0))
-        self.panel_font_size.valueChanged.connect(
-            lambda v: (self.settings.set("tm.panel.font.size", v),
-                       self._apply_panel_font()))
-        font_form.addWidget(QLabel("Czcionka paneli TM / zdań:"))
-        font_form.addWidget(self.panel_font_size)
-        font_form.addStretch(1)
 
         self.panel_layout_combo = QComboBox()
         self.panel_layout_combo.addItem("Wszystko naraz (jedno pod drugim)", "stacked")
@@ -203,7 +224,6 @@ class SettingsTab(QTabWidget):
             self._panel_show_checks[key] = cb
 
         right_box = QGroupBox("Panel prawy edytora (układ i zawartość)")
-        right_box.setStyleSheet("QGroupBox { font-size: 11px; color: #666; }")
         rb_l = QVBoxLayout(right_box)
         rb_l.setContentsMargins(8, 4, 8, 4)
         rb_row = QHBoxLayout()
@@ -216,7 +236,6 @@ class SettingsTab(QTabWidget):
             show_row.addWidget(self._panel_show_checks[key])
         show_row.addStretch(1)
         rb_l.addLayout(show_row)
-        rb_l.addWidget(font_row)
         layout.addWidget(right_box)
 
         layout.addStretch(1)
@@ -641,6 +660,15 @@ class SettingsTab(QTabWidget):
         editor = getattr(self.app, "editor_tab", None)
         if editor is not None and hasattr(editor, "apply_panel_font"):
             editor.apply_panel_font()
+
+    def _reset_panel_fonts(self) -> None:
+        """Wszystkie czcionki paneli na 0 — wracają do czcionki interfejsu."""
+        for key, spin in getattr(self, "panel_font_sizes", {}).items():
+            self.settings.set(key, 0)
+            spin.blockSignals(True)
+            spin.setValue(0)
+            spin.blockSignals(False)
+        self._apply_panel_font()
 
     def _apply_ui_font(self) -> None:
         """Zmiana rozmiaru czcionki całego interfejsu (od razu, bez restartu)."""
@@ -1516,7 +1544,6 @@ class SettingsTab(QTabWidget):
 
 
         codes_box = QGroupBox("Kody do dopasowania (dowolne, zależne od gry)")
-        codes_box.setStyleSheet("QGroupBox { font-size: 11px; color: #666; }")
         cb_l = QVBoxLayout(codes_box)
         cb_l.setContentsMargins(8, 4, 8, 4)
         cb_l.addWidget(codes_row)

@@ -62,7 +62,9 @@ SHORTCUTS: List[ShortcutDef] = [
     # --- oznaczenia ---
     ShortcutDef("mark_new", "Ctrl+Shift+1", "Oznacz jako nowy", "Oznaczenia"),
     ShortcutDef("mark_draft", "Ctrl+Shift+2", "Oznacz jako roboczy", "Oznaczenia"),
+    ShortcutDef("mark_todo", "Ctrl+Shift+T", "Oznacz jako „do przetłumaczenia”", "Oznaczenia"),
     ShortcutDef("mark_translated", "Ctrl+Shift+3", "Oznacz jako przetłumaczony", "Oznaczenia"),
+    ShortcutDef("next_todo", "Ctrl+Alt+T", "Następny „do przetłumaczenia”", "Nawigacja"),
     ShortcutDef("mark_approved", "Ctrl+Shift+4", "Oznacz jako zatwierdzony", "Oznaczenia"),
     ShortcutDef("ignore_selected", "Ctrl+Shift+I", "Pomiń zaznaczone segmenty", "Oznaczenia"),
     ShortcutDef("restore_selected", "Ctrl+Shift+R", "Przywróć zaznaczone segmenty", "Oznaczenia"),

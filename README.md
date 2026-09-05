@@ -663,6 +663,28 @@ Znaczniki stojące na brzegu dopasowanego fragmentu są teraz **doklejane do pro
 * propozycja z przełamanego segmentu dostaje przełamanie z powrotem,
   gdy tłumaczenie jest dłuższe niż najdłuższa linia oryginału.
 
+### Podpowiedzi czyta się bez znaczników
+
+W panelu „Dopasowanie zdań” propozycja jest pokazywana **bez** `<<kon>>`, `{PLAYER}`
+i podobnych kodów — widać sam tekst, o który chodzi. Do tłumaczenia trafia
+pełna wersja, czyli z kodami oryginału (jak wyżej), a surowy tekst jest w
+podpowiedzi po najechaniu myszą na pozycję.
+
+Dodatkowo odrzucane są dopasowania „z niczego”: jeśli jedyną wspólną rzeczą
+między segmentem a wpisem pamięci jest cyfra (segment „…mieć **1** salę.” wobec
+wpisu „just **one** / tylko **1**”), taka propozycja w ogóle się nie pojawia.
+
+### Oznaczenie „do przetłumaczenia” i powrót do miejsca pracy
+
+* **🔵 do przetłumaczenia** — nowe oznaczenie segmentu (menu podręczne w siatce
+  *🏷️ Oznacz jako…*, menu *Projekt*, skrót `Ctrl+Shift+T`). Działa jak „wrócę tu
+  później”: filtr **Do przetłumaczenia** pokazuje tylko takie segmenty, a skrót
+  `Ctrl+Alt+T` skacze między nimi.
+* **Pamięć miejsca pracy** — program zapamiętuje, na którym segmencie skończyłeś,
+  **osobno dla każdego pliku** (ustawienie `editor.last.segment`). Po wejściu
+  w plik — i po ponownym otwarciu projektu — wraca do tego samego segmentu,
+  zamiast zaczynać od pierwszego.
+
 ## Pilnowanie, żeby w TM były tylko prawdziwe tłumaczenia
 
 *Ustawienia → 💾 Pamięć TM → **„Nie zapisuj do TM tekstów, które zostały w języku źródłowym”***
@@ -1014,6 +1036,14 @@ widoczny uchwyt (8 px, ten sam styl co w kolumnach edytora):
 | **Czcionka interfejsu** (`ui.font.size`) | wielkość czcionki w **całym programie**: menu, zakładki, tabele, przyciski, listy. 0 = domyślna z motywu. Skróty: `Ctrl+Shift++` / `Ctrl+Shift+−` |
 | **Rozmiar czcionki edytora** (`editor.font.size`) | tylko pola źródła i tłumaczenia (`Ctrl++` / `Ctrl+−`) |
 | **Czcionka paneli** (`tm.panel.font.size`) | **cały prawy panel** — listy, etykiety, przyciski, podgląd MT, notatki (dawniej tylko cztery listy, więc zmiana była ledwo widoczna) |
+
+| **Czcionka pojedynczego panelu** (`tm.panel.font.matches`, `.sentences`, `.terms`, `.conc`, `.mt`, `.lang`, `.notes`) | rozmiar dla **jednego** wybranego panelu: np. tylko „Dopasowania TM” albo tylko „Dopasowanie zdań”. Zero = rozmiar wspólny / z interfejsu |
+
+Wszystkie suwaki są w jednej grupie **„🔤 Czcionka paneli po prawej”**, a pod nimi
+przycisk *↺ Domyślne (wszędzie zero)*, który wraca do normalnej wielkości. Wcześniej
+nagłówki grup w Ustawieniach miały na sztywno 11 px i szary kolor — przez to opcje
+czcionek były nieczytelne i nie dało się ich znaleźć; teraz nagłówki mają zwykłą
+wielkość, a grupa z motywem nazywa się „🎨 Motyw i czcionki”.
 
 Zmiana działa od razu, bez restartu. Gdy czcionka panelu jest ustawiona na 0, panel
 rośnie razem z czcionką interfejsu.

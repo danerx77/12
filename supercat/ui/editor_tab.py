@@ -24,7 +24,8 @@ from PyQt6.QtWidgets import (
 )
 
 from ..core.fileparser import Segment
-from ..core.tm import SentenceMatch, TranslationMatch
+from ..core.tm import (SentenceMatch, TranslationMatch,
+                       strip_codes_for_display as _strip_codes)
 from ..core.qa import segment_statistics, word_count
 from ..core.settings import SettingsManager
 from ..core.textutil import DEFAULT_MARKER_STYLE
@@ -490,6 +491,7 @@ def _is_done(seg) -> bool:
 
 STATUS_LABELS = {
     "new": "○ nowy",
+    "todo": "🔵 do przetłumaczenia",
     "draft": "✎ roboczy",
     "translated": "✓ przetłumaczony",
     "approved": "★ zatwierdzony",
@@ -701,7 +703,8 @@ class EditorTab(QWidget):
         self.filter_edit.textChanged.connect(self.refresh_grid)
         filter_row.addWidget(self.filter_edit, 1)
         self.status_filter = QComboBox()
-        self.status_filter.addItems(["Wszystkie", "Nieprzetłumaczone", "Przetłumaczone", "Zatwierdzone", "Pominięte"])
+        self.status_filter.addItems(["Wszystkie", "Nieprzetłumaczone", "Do przetłumaczenia",
+                                         "Przetłumaczone", "Zatwierdzone", "Pominięte"])
         self.status_filter.currentIndexChanged.connect(self.refresh_grid)
         filter_row.addWidget(self.status_filter)
         grid_layout.addLayout(filter_row)
@@ -745,6 +748,11 @@ class EditorTab(QWidget):
         self._grid_col_timer = QTimer(self)
         self._grid_col_timer.setSingleShot(True)
         self._grid_col_timer.timeout.connect(self._save_grid_columns)
+        # Ostatni segment, na którym stanęliśmy — zapis odroczony, bo
+        # strzałkami po siatce przechodzi się dziesiątki segmentów na minutę.
+        self._last_seg_timer = QTimer(self)
+        self._last_seg_timer.setSingleShot(True)
+        self._last_seg_timer.timeout.connect(self._save_last_segment)
         self.grid.itemSelectionChanged.connect(self._on_grid_selection)
         # Ctrl+↑/↓ w tabeli domyślnie „rozciąga” zaznaczenie zamiast po prostu
         # przejść do sąsiedniego wiersza — obsługuje to SegmentGrid.
@@ -1133,6 +1141,7 @@ class EditorTab(QWidget):
             "prev_untranslated": self.prev_untranslated,
             "next_translated": self.next_translated,
             "next_unapproved": self.next_unapproved,
+            "next_todo": self.next_todo,
             "copy_source": self.copy_source_to_target,
             "insert_match": self._insert_best_match,
             "machine_translate": self.machine_translate_current,
@@ -1143,6 +1152,7 @@ class EditorTab(QWidget):
             "find_in_file": lambda: self.find_selected_word("Tylko przeglądany plik"),
             "copy_timing": self.copy_timing,
             "mark_new": self.mark_new,
+            "mark_todo": self.mark_todo,
             "mark_draft": self.mark_draft,
             "mark_translated": self.mark_translated,
             "mark_approved": self.approve_current,
@@ -1206,10 +1216,91 @@ class EditorTab(QWidget):
         self.refresh_grid()
         if segments:
             self.load_segment(0)
+            self._restore_last_segment()
         else:
             self.source_edit.clear()
             self.target_edit.clear()
         self.update_progress()
+
+    # --------------------------------------- pamięć miejsca pracy w pliku
+    LAST_SEGMENT_KEY = "editor.last.segment"
+
+    def _remember_last_segment(self) -> None:
+        """Zapamiętuje bieżący segment dla jego pliku (zapis odroczony).
+
+        Program wraca potem do tego samego miejsca, zamiast zaczynać plik
+        od początku — przy kilkuset segmentach oszczędza to szukanie.
+        """
+        if getattr(self, "_loading", False):
+            return
+        self._last_seg_timer.start(800)
+
+    def _save_last_segment(self) -> None:
+        """Zapisuje mapę {plik: numer segmentu} do ustawień."""
+        import json
+
+        if not (0 <= getattr(self, "current_index", -1) < len(self.segments)):
+            return
+        seg = self.segments[self.current_index]
+        name = getattr(seg, "file_name", None) or "(bez pliku)"
+        try:
+            raw = SettingsManager.instance().get(self.LAST_SEGMENT_KEY)
+            remembered = json.loads(raw) if isinstance(raw, str) and raw else {}
+            if not isinstance(remembered, dict):
+                remembered = {}
+        except (ValueError, TypeError):
+            remembered = {}
+        # Numer względny w pliku — kolejność segmentów w pliku jest stała,
+        # a numer w całym projekcie zmienia się po dołożeniu plików.
+        offset = sum(1 for s in self.segments[:self.current_index]
+                     if (s.file_name or "(bez pliku)") == name)
+        remembered[name] = offset
+        if len(remembered) > 200:
+            remembered = dict(list(remembered.items())[-200:])
+        try:
+            SettingsManager.instance().set(self.LAST_SEGMENT_KEY,
+                                           json.dumps(remembered))
+        except Exception:
+            pass
+
+    def _restore_last_segment(self) -> bool:
+        """Wracam do segmentu, na którym skończono pracę w tym pliku.
+
+        Wywoływane przy wejściu w plik (i po wczytaniu projektu). Filtr
+        tekstu nie kasuje zapamiętanego miejsca — tylko je przykrywa,
+        dopóki filtr jest włączony.
+        """
+        import json
+
+        if not self.segments:
+            return False
+        name = self._file_filter or "(bez pliku)"
+        try:
+            raw = SettingsManager.instance().get(self.LAST_SEGMENT_KEY)
+            remembered = json.loads(raw) if isinstance(raw, str) and raw else {}
+        except (ValueError, TypeError):
+            return False
+        if not isinstance(remembered, dict) or name not in remembered:
+            return False
+        try:
+            wanted = int(remembered[name])
+        except (TypeError, ValueError):
+            return False
+        if self._file_filter:
+            # liczymy pozycję wewnątrz tego pliku
+            seen = -1
+            for index, seg in enumerate(self.segments):
+                if (seg.file_name or "(bez pliku)") != name:
+                    continue
+                seen += 1
+                if seen == wanted:
+                    self.load_segment(index)
+                    return True
+            return False
+        if 0 <= wanted < len(self.segments):
+            self.load_segment(wanted)
+            return True
+        return False
 
     def _set_file_marker(self, name: str, marker: str) -> None:
         """Ustawia własny znacznik pliku (✓ sprawdzone / ⚠️ uwaga / ✗ problem)."""
@@ -1493,9 +1584,11 @@ class EditorTab(QWidget):
             self.load_segment(self.current_index)
 
     def apply_panel_font(self) -> None:
-        """Wielkość czcionki w całym prawym panelu (TM / zdania / terminy / …).
+        """Wielkość czcionki w prawym panelu (TM / zdania / terminy / …).
 
-        Ustawienie ``tm.panel.font.size``; 0 = czcionka aplikacji. Obejmuje
+        Ustawienia: ``tm.panel.font.size`` dla wszystkich paneli naraz oraz
+        ``tm.panel.font.<klucz>`` (matches, sentences, terms, conc, mt, lang,
+        notes) dla każdego z osobna. Zero = czcionka aplikacji. Obejmuje
         wszystko w panelu — listy, etykiety, przyciski, podgląd MT, notatki
         (dawniej tylko cztery listy, więc zmiana była ledwo widoczna).
 
@@ -1503,41 +1596,50 @@ class EditorTab(QWidget):
         Qt — dzięki temu powrót do zera przywraca wyjściowy wygląd, a
         przeliczenie można powtórzyć dowolną liczbę razy.
         """
-        size = SettingsManager.instance().get_int("tm.panel.font.size", 0)
-        roots = [w for _title, w, _key in self._right_panels]
+        settings = SettingsManager.instance()
+        size = settings.get_int("tm.panel.font.size", 0)
+        # Najpierw wspólny rozmiar dla CAŁEGO kontenera (obejmuje też ramki
+        # i tytuły paneli), a potem — nad nim — rozmiary poszczególnych
+        # paneli. Odwrotna kolejność kasowałaby ustawienia per panel,
+        # bo kontener jest rodzicem wszystkich paneli naraz.
         # _build_ui woła to jeszcze przed zbudowaniem kontenera.
         container = getattr(self, "_right_container", None)
         if container is not None:
-            roots.append(container)
-        for root in roots:
-            for widget in [root, *root.findChildren(QWidget)]:
-                base = widget.property("sc_base_font")
-                if not isinstance(base, QFont):
-                    base = QFont(widget.font())
-                    widget.setProperty("sc_base_font", base)
-                if size > 0:
-                    font = QFont(base)
-                    font.setPointSize(size)
-                    widget.setFont(font)
-                else:
-                    # Zero = czcionka programu. Bierzemy ją na żywo, żeby panel
-                    # rósł razem z całym interfejsem (ustawienie „Czcionka
-                    # interfejsu”), a nie zostawał przy tej z pierwszego startu.
-                    application = QApplication.instance()
-                    widget.setFont(QFont(application.font())
-                                   if application is not None else QFont(base))
-                # Etykiety z własnym arkuszem („font-size: 11px”) ignorują
-                # setFont — im zmieniamy rozmiar w samym arkuszu stylów.
-                sheet = widget.styleSheet()
-                if "font-size" in sheet:
-                    original = widget.property("sc_base_sheet")
-                    if not isinstance(original, str):
-                        original = sheet
-                        widget.setProperty("sc_base_sheet", original)
-                    new_sheet = (_scale_css_font_size(original, size, base)
-                                 if size > 0 else original)
-                    if new_sheet != sheet:
-                        widget.setStyleSheet(new_sheet)
+            self._apply_font_to_panel(container, size)
+        for title, root, key in self._right_panels:
+            own = settings.get_int(f"tm.panel.font.{key}", 0)
+            self._apply_font_to_panel(root, own if own > 0 else size)
+
+    def _apply_font_to_panel(self, root: QWidget, size: int) -> None:
+        """Ustawia czcionkę w jednym panelu (i wszystkim, co w nim siedzi)."""
+        for widget in [root, *root.findChildren(QWidget)]:
+            base = widget.property("sc_base_font")
+            if not isinstance(base, QFont):
+                base = QFont(widget.font())
+                widget.setProperty("sc_base_font", base)
+            if size > 0:
+                font = QFont(base)
+                font.setPointSize(size)
+                widget.setFont(font)
+            else:
+                # Zero = czcionka programu. Bierzemy ją na żywo, żeby panel
+                # rósł razem z całym interfejsem (ustawienie „Czcionka
+                # interfejsu”), a nie zostawał przy tej z pierwszego startu.
+                application = QApplication.instance()
+                widget.setFont(QFont(application.font())
+                               if application is not None else QFont(base))
+            # Etykiety z własnym arkuszem („font-size: 11px”) ignorują
+            # setFont — im zmieniamy rozmiar w samym arkuszu stylów.
+            sheet = widget.styleSheet()
+            if "font-size" in sheet:
+                original = widget.property("sc_base_sheet")
+                if not isinstance(original, str):
+                    original = sheet
+                    widget.setProperty("sc_base_sheet", original)
+                new_sheet = (_scale_css_font_size(original, size, base)
+                             if size > 0 else original)
+                if new_sheet != sheet:
+                    widget.setStyleSheet(new_sheet)
 
     def _file_counters(self) -> "dict[str, tuple[int, int, int]]":
         """Zlicza (przetłumaczone, do zrobienia, pominięte) dla każdego pliku.
@@ -1918,12 +2020,14 @@ class EditorTab(QWidget):
     def _on_file_selected(self, item: QListWidgetItem) -> None:
         self._file_filter = item.data(Qt.ItemDataRole.UserRole)
         self.refresh_grid()
+        self._restore_last_segment()
 
     def _show_all_files(self) -> None:
         self._file_filter = None
         if self.files_list.count():
             self.files_list.setCurrentRow(0)
         self.refresh_grid()
+        self._restore_last_segment()
 
     # ------------------------------------------------------------- siatka
     def _visible_indices(self) -> List[int]:
@@ -1938,6 +2042,8 @@ class EditorTab(QWidget):
             if status == "Nieprzetłumaczone" and seg.is_translated:
                 continue
             if status == "Przetłumaczone" and not seg.is_translated:
+                continue
+            if status == "Do przetłumaczenia" and seg.status != "todo":
                 continue
             if status == "Zatwierdzone" and seg.status != "approved":
                 continue
@@ -2110,6 +2216,7 @@ class EditorTab(QWidget):
         many = f" ({len(selected_now)})" if len(selected_now) > 1 else ""
         status_menu = menu.addMenu(f"🏷️ Oznacz jako…{many}")
         act_new = status_menu.addAction("○ nowy")
+        act_todo = status_menu.addAction("🔵 do przetłumaczenia")
         act_draft = status_menu.addAction("✎ roboczy")
         act_translated = status_menu.addAction("✓ przetłumaczony")
         act_approve = status_menu.addAction("★ zatwierdzony")
@@ -2135,6 +2242,9 @@ class EditorTab(QWidget):
         action = menu.exec(self.grid.viewport().mapToGlobal(pos))
         if action == act_new:
             self.mark_new()
+            return
+        if action == act_todo:
+            self.mark_todo()
             return
         if action == act_draft:
             self.mark_draft()
@@ -2191,6 +2301,7 @@ class EditorTab(QWidget):
     def load_segment(self, index: int) -> None:
         if not (0 <= index < len(self.segments)):
             return
+        self._remember_last_segment()
         self._loading = True
         self.current_index = index
         seg = self.segments[index]
@@ -2354,6 +2465,11 @@ class EditorTab(QWidget):
         """Następny segment, który nie został jeszcze zatwierdzony."""
         self._jump_to(lambda seg: seg.status != "approved" and not seg.ignored,
                       forward=True, what="niezatwierdzonego")
+
+    def next_todo(self) -> None:
+        """Następny segment oznaczony „do przetłumaczenia” (skok między nimi)."""
+        self._jump_to(lambda seg: seg.status == "todo" and not seg.ignored,
+                      forward=True, what="„do przetłumaczenia”")
 
     def _jump_to(self, predicate, forward: bool = True, what: str = "") -> None:
         """Skacze do najbliższego segmentu spełniającego warunek – z zawijaniem.
@@ -2587,6 +2703,10 @@ class EditorTab(QWidget):
         """Cofa segmenty do stanu „nowy” (do ponownego zrobienia)."""
         self.set_status(self.selected_indices(), "new")
 
+    def mark_todo(self) -> None:
+        """Oznacza segmenty „do przetłumaczenia” — wrócę do nich później."""
+        self.set_status(self.selected_indices(), "todo")
+
     def mark_translated(self) -> None:
         self.set_status(self.selected_indices(), "translated")
 
@@ -2719,6 +2839,7 @@ class EditorTab(QWidget):
 
     #: Tryby masowego oznaczania – opis dla okna „Oznacz pasujące…”.
     BULK_ACTIONS = [
+        ("todo", "🔵 oznacz jako DO PRZETŁUMACZENIA"),
         ("translated", "✓ oznacz jako PRZETŁUMACZONE"),
         ("approved", "★ oznacz jako ZATWIERDZONE"),
         ("ignored", "🚫 oznacz jako POMINIĘTE"),
@@ -3233,24 +3354,33 @@ class EditorTab(QWidget):
             return
         self.sentence_info.setText(f"Znaleziono {len(sentences)} fragmentów zdań w TM")
         for match in sentences:
+            # Na ekranie tekst BEZ znaczników (<<kon>>, {PLAYER}) — do
+            # wstawienia idzie pełna wersja, żeby plik zachował kodowanie
+            # oryginału. Znaczniki widać w podpowiedzi po najechaniu myszą.
+            shown = _strip_codes(match.assembled)
             if match.line_pairs:
                 # rozbicie linia po linii – najczytelniejsza postać dla plików gier
                 lines = "\n".join(
-                    f"      {src}\n          → {tgt}" for src, tgt in match.line_pairs
+                    f"      {_strip_codes(src)}\n          → {_strip_codes(tgt)}"
+                    for src, tgt in match.line_pairs
                 )
                 text = (
                     f"[{match.label}]\n"
                     f"{lines}\n"
-                    f"      ⤵ całość: {match.assembled}"
+                    f"      ⤵ całość: {shown}"
                 )
             else:
                 label = "złożenie z kilku fragmentów" if " + " in match.fragment_source else "fragment z TM"
                 text = (
-                    f"[{match.label}] {match.assembled}\n"
-                    f"      {label}: {match.fragment_source} → {match.fragment_target}"
+                    f"[{match.label}] {shown}\n"
+                    f"      {label}: {_strip_codes(match.fragment_source)}"
+                    f" → {_strip_codes(match.fragment_target)}"
                 )
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, match.assembled)
+            item.setToolTip(
+                f"{match.assembled}\n\n(fragment: {match.fragment_source}"
+                f" → {match.fragment_target})")
             if getattr(match, "partial", False):
                 # Złożenie zostawia tekst źródłowy — na pomarańczowo, żeby nie
                 # dało się go wziąć za gotowe tłumaczenie.

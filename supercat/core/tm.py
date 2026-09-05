@@ -1279,16 +1279,14 @@ class TranslationMemory:
                     top = sorted(range(len(row)), key=lambda i: -row[i])[:k]
                     top = [i for i in top if row[i] > 0]
                 best_score, best_idx = 0, -1
-                seg_words = set(_TOKEN_RE.findall(flat_seg))
+                seg_words = _match_words(flat_seg)
                 for i in top:
                     cand = keys[i]
                     # Wymóg pokrycia SŁÓW: krótki wpis („System”) nie może
                     # uchodzić za dopasowanie całej linii („GIFT System.”)
                     # tylko dlatego, że WRatio wysoko ocenia dopasowanie częściowe.
-                    if seg_words:
-                        covered = len(seg_words & set(_TOKEN_RE.findall(cand)))
-                        if covered / len(seg_words) < _MIN_LINE_WORD_COVERAGE:
-                            continue
+                    if not _covers_enough(seg_words, cand, flat_seg):
+                        continue
                     score = _rf_fuzz.WRatio(flat_seg, cand)
                     if score >= threshold and score > best_score:
                         best_score, best_idx = int(round(score)), i
@@ -1300,12 +1298,10 @@ class TranslationMemory:
                     return results
                 best_score, best_idx = 0, -1
                 n = len(flat_seg)
-                seg_words = set(_TOKEN_RE.findall(flat_seg))
+                seg_words = _match_words(flat_seg)
                 for i, key in enumerate(keys):
-                    if seg_words:
-                        covered = len(seg_words & set(_TOKEN_RE.findall(key)))
-                        if covered / len(seg_words) < _MIN_LINE_WORD_COVERAGE:
-                            continue
+                    if not _covers_enough(seg_words, key, flat_seg):
+                        continue
                     short, long = (flat_seg, key) if n <= len(key) else (key, flat_seg)
                     ratio = SequenceMatcher(None, short, long).ratio()
                     if len(short) < len(long):
@@ -1648,6 +1644,43 @@ def _flatten_with_map(text: str) -> Tuple[str, List[int]]:
 #: Do ilu wyrazów wpis identyczny po obu stronach uznajemy za świadomy wybór
 #: tłumacza (nazwa własna, etykieta), a nie za pracę niedokończoną.
 _IDENTICAL_WORD_LIMIT = 4
+
+
+def _match_words(text: str) -> set:
+    """Słowa, po których wolno liczyć pokrycie — bez cyfr i pojedynczych znaków.
+
+    Wpis „just one / tylko 1” nie jest dopasowaniem zdania „…mieć 1 salę.”
+    tylko dlatego, że oba mają cyfrę 1. Cyfry („1”, „TM01” liczy się dalej,
+    bo ma litery) i jednoliterowe słowa nie biorą udziału w ocenie pokrycia.
+    """
+    return {w for w in _TOKEN_RE.findall((text or "").lower())
+            if len(w) >= 2 and any(c.isalpha() for c in w)}
+
+
+def _covers_enough(seg_words: set, candidate: str, segment_line: str) -> bool:
+    """Czy kandydat z TM ma prawo uchodzić za dopasowanie tej linii."""
+    if not seg_words:
+        # Sama cyfra albo znak („1”, „…”) — tylko pełna zgodność, inaczej
+        # z pamięci wyskakują zupełnie obce zdania (tzw. wydmuszki).
+        return (segment_line or "").strip().lower() == (candidate or "").strip().lower()
+    covered = len(seg_words & _match_words(candidate))
+    # Jedno wspólne słowo to za mało („1” i „just one”); przy krótkiej linii
+    # jedynego słowa nie da się wymagać dwóch.
+    if covered < (2 if len(seg_words) >= 2 else 1):
+        return False
+    return len(seg_words) < 2 or covered / len(seg_words) >= _MIN_LINE_WORD_COVERAGE
+
+
+def strip_codes_for_display(text: Optional[str]) -> str:
+    """Tekst do POKAZANIA w panelu — bez znaczników (<<kon>>, {PLAYER}, <b>).
+
+    Znaczniki są potrzebne w pliku wynikowym, ale w podpowiedzi tylko
+    zaśmiecają czytanie: „gdy zdecydowaliśmy mieć 1 salę.<<kon>>” wygląda
+    jak błąd. Do wstawienia idzie pełna wersja (z kodem), na ekranie — czysta.
+    """
+    if not text:
+        return ""
+    return re.sub(r"\s{2,}", " ", _INLINE_CODE_RE.sub("", text)).strip()
 
 
 def wrap_to_source_widths(source: str, assembled: Optional[str]) -> Optional[str]:

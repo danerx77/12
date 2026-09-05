@@ -39,6 +39,18 @@ DEFAULTS: Dict[str, Any] = {
     #: Wielkość czcionki paneli po prawej (TM / zdania / terminy);
     # 0 = czcionka domyślna aplikacji.
     "tm.panel.font.size": 0,
+    #: Wielkość czcionki dla POJEDYNCZEGO panelu (0 = jak „wszystkie panele”).
+    # Klucze: matches, sentences, terms, conc, mt, lang, notes.
+    "tm.panel.font.matches": 0,
+    "tm.panel.font.sentences": 0,
+    "tm.panel.font.terms": 0,
+    "tm.panel.font.conc": 0,
+    "tm.panel.font.mt": 0,
+    "tm.panel.font.lang": 0,
+    "tm.panel.font.notes": 0,
+    #: Ostatni segment, na którym skończono pracę — osobno dla każdego pliku
+    # (JSON: {nazwa_pliku: numer_segmentu}). Program wraca do tego miejsca.
+    "editor.last.segment": "{}",
     #: Układ paneli po prawej: "stacked" (wszystko naraz) lub "tabs" (zakładki).
     "tm.panel.layout": "stacked",
     #: Które panele po prawej w ogóle pokazywać.
