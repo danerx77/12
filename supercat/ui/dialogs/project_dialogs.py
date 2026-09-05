@@ -220,8 +220,18 @@ class AboutDialog(QDialog):
         layout = QVBoxLayout(self)
         browser = QTextBrowser()
         browser.setOpenExternalLinks(True)
+        from ...core import shortcuts as _sc
+
+        rows = []
+        for definition in _sc.SHORTCUTS:
+            seq = _sc.get(definition.key) or definition.default
+            if not seq.strip():
+                continue
+            rows.append(f"<tr><td><b>{seq}</b></td><td>{definition.label}</td></tr>")
+        rows.append("<tr><td><b>Alt+↑ / Alt+↓</b></td><td>poprzedni / następny segment (w edytorze)</td></tr>")
+        table = "\n".join(rows)
         browser.setHtml(
-            """
+            f"""
             <h2>SuperCAT Workbench 1.0</h2>
             <p>Narzędzie CAT (Computer-Aided Translation) napisane w Pythonie (PyQt6).</p>
             <p>Interfejs w stylu <b>Supervertaler Workbench</b> – jedno okno, zakładki
@@ -240,17 +250,11 @@ class AboutDialog(QDialog):
               <li>Eksport: odtworzenie oryginału, DOCX, XLSX, XLIFF, PO, SRT, HTML dwujęzyczny, TXT</li>
             </ul>
             <h3>Skróty klawiszowe</h3>
+            <p>Kombinacje można zmienić w <b>Ustawienia → Skróty</b>.
+            Żaden domyślny skrót nie używa Alt z literą, żeby nie blokować polskich znaków
+            (AltGr = Ctrl+Alt w Qt).</p>
             <table cellpadding="4">
-              <tr><td><b>Ctrl+N / Ctrl+O / Ctrl+S</b></td><td>nowy / otwórz / zapisz projekt</td></tr>
-              <tr><td><b>Ctrl+I</b></td><td>importuj pliki</td></tr>
-              <tr><td><b>Ctrl+E</b></td><td>eksportuj tłumaczenie</td></tr>
-              <tr><td><b>Ctrl+Enter</b></td><td>zatwierdź segment i przejdź dalej</td></tr>
-              <tr><td><b>Alt+↑ / Alt+↓</b></td><td>poprzedni / następny segment</td></tr>
-              <tr><td><b>Ctrl+D</b></td><td>kopiuj źródło do tłumaczenia</td></tr>
-              <tr><td><b>Ctrl+Spacja</b></td><td>wstaw najlepsze dopasowanie TM</td></tr>
-              <tr><td><b>Ctrl+M</b></td><td>tłumaczenie maszynowe segmentu</td></tr>
-              <tr><td><b>Ctrl+F</b></td><td>znajdź i zamień</td></tr>
-              <tr><td><b>F8</b></td><td>kontrola jakości QA</td></tr>
+              {table}
             </table>
             """
         )

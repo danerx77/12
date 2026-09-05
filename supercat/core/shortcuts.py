@@ -38,6 +38,8 @@ SHORTCUTS: List[ShortcutDef] = [
     ShortcutDef("import_files", "Ctrl+I", "Importuj pliki", "Plik", editor=False),
     ShortcutDef("export_files", "Ctrl+E", "Eksportuj tłumaczenia", "Plik", editor=False),
     ShortcutDef("reload_source", "F5", "Przeładuj pliki źródłowe", "Plik", editor=False),
+    ShortcutDef("close_project", "Ctrl+W", "Zamknij projekt", "Plik", editor=False),
+    ShortcutDef("quit", "Ctrl+Q", "Zakończ program", "Plik", editor=False),
 
     # --- nawigacja ---
     ShortcutDef("next_segment", "Ctrl+PgDown", "Następny segment", "Nawigacja"),
@@ -81,13 +83,23 @@ SHORTCUTS: List[ShortcutDef] = [
     ShortcutDef("copy_timing", "Ctrl+Shift+P", "Kopiuj pomiar czasu", "Narzędzia"),
     ShortcutDef("run_qa", "F8", "Uruchom kontrolę QA", "Narzędzia", editor=False),
     ShortcutDef("statistics", "F9", "Statystyki projektu", "Narzędzia", editor=False),
+    ShortcutDef("new_search_window", "Ctrl+Shift+N", "Nowe okno wyszukiwania", "Narzędzia", editor=False),
+
+    # --- widok i pomoc ---
+    ShortcutDef("toggle_sentence", "Ctrl+Shift+M", "Dopasowanie zdań (włącz/wyłącz)", "Widok", editor=False),
+    ShortcutDef("toggle_theme", "Ctrl+T", "Przełącz motyw (ciemny/jasny)", "Widok", editor=False),
+    ShortcutDef("font_plus", "Ctrl++", "Powiększ czcionkę edytora", "Widok", editor=False),
+    ShortcutDef("font_minus", "Ctrl+-", "Zmniejsz czcionkę edytora", "Widok", editor=False),
+    ShortcutDef("ui_font_plus", "Ctrl+Shift++", "Powiększ czcionkę interfejsu", "Widok", editor=False),
+    ShortcutDef("ui_font_minus", "Ctrl+Shift+-", "Zmniejsz czcionkę interfejsu", "Widok", editor=False),
+    ShortcutDef("about", "F1", "O programie / skróty klawiszowe", "Pomoc", editor=False),
 ]
 
 BY_KEY: Dict[str, ShortcutDef] = {s.key: s for s in SHORTCUTS}
 
 #: Litery, które na polskiej klawiaturze powstają z AltGr (czyli Ctrl+Alt
-#: w Qt): ą ć ę ł ń ó ś ź ż. Skrót „Alt + taka litera” sprawia, że zamiast
-#: polskiego znaku uruchamia się polecenie.
+#: w Qt): ą ć ę ł ń ó ś ź ż. Skrót „Alt + dowolna litera” sprawia, że zamiast
+#: polskiego znaku uruchamia się polecenie — Qt widzi AltGr jako Ctrl+Alt.
 _POLISH_ALTGR_LETTERS = set("acelnosxz")
 
 
@@ -96,13 +108,13 @@ def blocks_polish_letters(sequence: str) -> bool:
 
     Na polskiej klawiaturze AltGr+E to „ę”, a Qt widzi to jako ``Ctrl+Alt+E``.
     Skrót o takiej kombinacji „zjada” literę — dlatego żaden domyślny skrót
-    programu nie używa Alt z literą.
+    programu nie używa Alt z literą (Alt+strzałka jest w porządku).
     """
     parts = [p.strip().lower() for p in (sequence or "").split("+") if p.strip()]
     if not parts or "alt" not in parts:
         return False
     key = parts[-1]
-    return len(key) == 1 and key.isalpha() and key in _POLISH_ALTGR_LETTERS
+    return len(key) == 1 and key.isalpha()
 
 
 def groups() -> List[str]:
@@ -154,6 +166,16 @@ def reset_all(settings=None) -> None:
 
 def current_map(settings=None) -> Dict[str, str]:
     return {s.key: get(s.key, settings) for s in SHORTCUTS}
+
+
+def with_shortcut(key: str, text: str, settings=None) -> str:
+    """Dokleja aktualną kombinację do podpowiedzi, np. ``Zapisz (Ctrl+S)``."""
+    sequence = get(key, settings)
+    if not sequence:
+        return text
+    if sequence in text:
+        return text
+    return f"{text} ({sequence})"
 
 
 def find_conflict(key: str, sequence: str, settings=None) -> Optional[str]:

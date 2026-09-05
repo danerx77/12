@@ -930,7 +930,9 @@ class SettingsTab(QTabWidget):
         checks_form = QFormLayout(self.lang_group)
 
         self.lang_auto = QCheckBox("Sprawdzaj na bieżąco (w trakcie pisania)")
-        self.lang_auto.setToolTip("Wyłączone – kontrola tylko po naciśnięciu Ctrl+Alt+J")
+        from ..core import shortcuts as _sc
+        self.lang_auto.setToolTip(
+            _sc.with_shortcut("check_language", "Wyłączone – kontrola tylko po naciśnięciu skrótu"))
         self.lang_auto.setChecked(self.settings.get_bool("lang.check.auto", True))
         self.lang_auto.stateChanged.connect(self._toggle_lang_auto)
         checks_form.addRow(self.lang_auto)
@@ -2403,7 +2405,7 @@ class SettingsTab(QTabWidget):
 
     # ---------------------------------------------------- QuickTrans
     def _quicktrans_box(self) -> QGroupBox:
-        """Wybór silników, które ma odpytywać QuickTrans (⚡ Ctrl+Alt+Q).
+        """Wybór silników, które ma odpytywać QuickTrans.
 
         Domyślnie program bierze wszystkie gotowe silniki. Kto woli porównywać
         tylko dwa–trzy konkretne (bo reszta zwraca błędy albo zużywa limit),

@@ -85,11 +85,14 @@ QToolBar { background: #ffffff; border: 0; spacing: 4px; padding: 4px; }
 QToolButton { padding: 5px 9px; border-radius: 6px; }
 QToolButton:hover { background: #e3e8ef; }
 QTabWidget::pane { border: 1px solid #d0d4da; border-radius: 6px; background: #ffffff; }
+QMenuBar::item { padding: 5px 10px; background: transparent; }
 QTabBar::tab { padding: 8px 15px; background: transparent; border: 0; }
 QTabBar::tab:selected { border-bottom: 2px solid #1976d2; background: rgba(25,118,210,0.08); }
+QTabBar::tab:hover { background: rgba(25,118,210,0.06); }
 QPushButton { background: #ffffff; border: 1px solid #c6ccd4; border-radius: 6px; padding: 6px 12px; }
 QPushButton:hover { background: #e8eef7; }
 QPushButton:pressed { background: #cfe0f5; }
+QPushButton:disabled { color: #9aa0a6; }
 QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QComboBox {
     background: #ffffff; border: 1px solid #c6ccd4; border-radius: 6px; padding: 5px;
     color: #1c1c1c;
@@ -130,9 +133,19 @@ QMenu::item:disabled { color: #9aa0a6; }
 QHeaderView::section { background: #eaeef4; padding: 6px; border: 0; border-right: 1px solid #dde1e7; }
 QGroupBox { border: 1px solid #d0d4da; border-radius: 6px; margin-top: 14px; padding-top: 8px; background: #ffffff; }
 QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; color: #1565c0; }
-QStatusBar { background: #ffffff; }
+QStatusBar { background: #ffffff; border-top: 1px solid #d0d4da; }
 QProgressBar { border: 1px solid #c6ccd4; border-radius: 6px; text-align: center; background: #ffffff; }
 QProgressBar::chunk { background: #1976d2; border-radius: 5px; }
+QSplitter::handle { background: #c5ced8; }
+QSplitter::handle:hover { background: #1976d2; }
+QSplitter::handle:horizontal { width: 6px; }
+QSplitter::handle:vertical { height: 6px; }
+QScrollBar:vertical { background: #eef0f3; width: 12px; }
+QScrollBar::handle:vertical { background: #c5ced8; border-radius: 6px; min-height: 30px; }
+QScrollBar:horizontal { background: #eef0f3; height: 12px; }
+QScrollBar::handle:horizontal { background: #c5ced8; border-radius: 6px; min-width: 30px; }
+QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
+QCheckBox::indicator, QRadioButton::indicator { width: 15px; height: 15px; }
 """
 
 
@@ -201,17 +214,52 @@ class Colors:
         return "#d8b4fe" if self.dark else "#6a1b9a"
 
 
-def style_splitter_handle(handle) -> None:
+def _theme_is_dark() -> bool:
+    try:
+        from ..core.settings import SettingsManager
+
+        return SettingsManager.instance().get_bool("theme.dark", True)
+    except Exception:
+        return True
+
+
+def style_splitter_handle(handle, dark: bool | None = None) -> None:
     """Widoczny uchwyt splittera (tylko uchwyt — bez efektu na dzieci)."""
     if handle is None:
         return
-    handle.setStyleSheet(
-        "QSplitterHandle { background: #46536b; }"
-        "QSplitterHandle:horizontal { border-left: 1px solid #2b3547;"
-        " border-right: 1px solid #2b3547; }"
-        "QSplitterHandle:vertical { border-top: 1px solid #2b3547;"
-        " border-bottom: 1px solid #2b3547; }"
-    )
+    if dark is None:
+        dark = _theme_is_dark()
+    if dark:
+        handle.setStyleSheet(
+            "QSplitterHandle { background: #46536b; }"
+            "QSplitterHandle:hover { background: #2f7fd1; }"
+            "QSplitterHandle:horizontal { border-left: 1px solid #2b3547;"
+            " border-right: 1px solid #2b3547; }"
+            "QSplitterHandle:vertical { border-top: 1px solid #2b3547;"
+            " border-bottom: 1px solid #2b3547; }"
+        )
+    else:
+        handle.setStyleSheet(
+            "QSplitterHandle { background: #c5ced8; }"
+            "QSplitterHandle:hover { background: #1976d2; }"
+            "QSplitterHandle:horizontal { border-left: 1px solid #b0b8c4;"
+            " border-right: 1px solid #b0b8c4; }"
+            "QSplitterHandle:vertical { border-top: 1px solid #b0b8c4;"
+            " border-bottom: 1px solid #b0b8c4; }"
+        )
+
+
+def restyle_splitters(root, dark: bool | None = None) -> None:
+    """Odświeża uchwyty wszystkich splitterów po zmianie motywu."""
+    from PyQt6.QtWidgets import QSplitter
+
+    if root is None:
+        return
+    if dark is None:
+        dark = _theme_is_dark()
+    for splitter in root.findChildren(QSplitter):
+        for index in range(max(0, splitter.count() - 1)):
+            style_splitter_handle(splitter.handle(index), dark)
 
 
 def setup_splitter(splitter, minimums=None, collapsible: bool = False) -> None:

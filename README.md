@@ -162,7 +162,7 @@ i `\p` zostają dokładnie tam, gdzie były. Opcję można wyłączyć w Ustawie
 tłumaczeniu. Bez tego MyMemory i Google zwracały uszkodzone `\ n` albo gubiły znaczniki.
 Usuwane są też spacje, które silniki dostawiają wokół znaczników.
 
-**📝 Edytor pamięci TM / TMX** (`Ctrl+Alt+E`, także Narzędzia i zakładka Pamięć TM) —
+**📝 Edytor pamięci TM / TMX** (`Ctrl+Shift+X`, także Narzędzia i zakładka Pamięć TM) —
 odpowiednik TMX Editora z Supervertaler Workbench: siatka dwujęzyczna ze stronicowaniem,
 panel edycji nad siatką, filtrowanie (w tym „tylko problematyczne”), dodawanie i usuwanie
 jednostek, kopiowanie źródła do celu, znajdź i zamień w całej pamięci (z regex),
@@ -302,7 +302,7 @@ imporcie plików lub otwarciu projektu program może sam uzupełnić tłumaczeni
 (z konfigurowalnym progiem dopasowania), a następnie opcjonalnie przetłumaczyć maszynowo
 segmenty, których TM nie pokryła. Można też wyłączyć pytanie o potwierdzenie.
 
-**⚡ QuickTrans** (`Ctrl+Alt+Q`) — odpowiednik QuickTrans z Supervertaler Workbench: jedno okno
+**⚡ QuickTrans** (`Ctrl+Shift+Q`) — odpowiednik QuickTrans z Supervertaler Workbench: jedno okno
 odpytuje **równolegle wybrane silniki** (domyślnie wszystkie dostępne) i pokazuje ich propozycje
 z kolorowym kodem dostawcy. Wybór klawiszem 1–9 lub podwójnym kliknięciem, tekst źródłowy można
 edytować i tłumaczyć ponownie, przełącznik „tylko silniki bez klucza API”, a listę silników
@@ -423,7 +423,7 @@ niebieską kropkowaną. **Prawy przycisk myszy** na podkreślonym wyrazie pokazu
 **propozycje poprawnego wyrazu** (kliknięcie podmienia go w tekście) oraz opcję
 **➕ Dodaj do słownika** (zapis do `uzytkownika.txt` w projekcie). Panel **🔤 Język** obok
 wypisuje wszystkie uwagi: dwuklik wstawia poprawkę, a **✨ Popraw automatycznie** stosuje
-wszystkie jednoznaczne propozycje. Sprawdzanie działa w tle (`Ctrl+Alt+J` wymusza je od razu).
+wszystkie jednoznaczne propozycje. Sprawdzanie działa w tle (`Ctrl+Shift+J` wymusza je od razu).
 
 **Szybkość.** Hunspell liczy propozycje ok. 3 s na wyraz, więc dla kilku literówek panel
 czekałby kilkanaście sekund. Dlatego podkreślenia i propozycje są rozdzielone:
@@ -701,7 +701,9 @@ przeniesiono na `Ctrl+Shift+…`:
 | Kopiuj pomiar czasu | Ctrl+Alt+T | Ctrl+Shift+P |
 
 Gdy sam ustawisz skrót z Alt i literą (Ustawienia → Skróty), program ostrzeże, że
-taka kombinacja blokuje polskie znaki.
+taka kombinacja blokuje polskie znaki. Dodatkowo przy starcie aplikacja oddaje
+`Ctrl+Alt+literę` polom tekstowym (filtr `ShortcutOverride`), więc **ę, ś, ą, ć, ł,
+ń, ó, ź, ż** wpiszesz nawet wtedy, gdy jakiś skrót koliduje z AltGr.
 
 ### Odstępy przy kodach wiersza
 
@@ -739,7 +741,7 @@ będą zgłaszane jako błędy”.
 * **🔵 do przetłumaczenia** — nowe oznaczenie segmentu (menu podręczne w siatce
   *🏷️ Oznacz jako…*, menu *Projekt*, skrót `Ctrl+Shift+T`). Działa jak „wrócę tu
   później”: filtr **Do przetłumaczenia** pokazuje tylko takie segmenty, a skrót
-  `Ctrl+Alt+T` skacze między nimi.
+  `Ctrl+Shift+G` skacze między nimi.
 * **Pamięć miejsca pracy** — program zapamiętuje, na którym segmencie skończyłeś,
   **osobno dla każdego pliku** (ustawienie `editor.last.segment`). Po wejściu
   w plik — i po ponownym otwarciu projektu — wraca do tego samego segmentu,
@@ -1031,7 +1033,7 @@ wielokrotne (`Ctrl`+klik, `Shift`+klik, `Ctrl+A`), a prawy przycisk myszy daje:
 | **🚫 Pomiń nieprzetłumaczone w tym pliku…** | jednym ruchem odsiewa resztę pliku |
 | **🚫 Pomiń pasujące do wzorca…** | wpisujesz np. `<<< FILE:*>>>`, program pokazuje ile pasuje i proponuje **zapisanie jako stałej reguły** |
 
-Skróty: `Ctrl+Shift+I` pomija zaznaczone, `Ctrl+Shift+U` przywraca. To samo jest w menu
+Skróty: `Ctrl+Shift+I` pomija zaznaczone, `Ctrl+Shift+R` przywraca. To samo jest w menu
 **📦 Projekt** i pod przyciskiem **🚫 Pomiń** w pasku pod edytorem.
 
 **Pominięte segmenty nie są liczone.** Znikają z mianownika w liczniku pliku, w pasku
@@ -1211,9 +1213,9 @@ Przycisk **✔ Zatwierdź i dalej** (`Ctrl+Enter`) **zawsze zmienia oznaczenie**
 | Skrót | Działanie |
 |---|---|
 | `Ctrl+U` | następny **nieprzetłumaczony** segment |
-| `Ctrl+Alt+U` | poprzedni nieprzetłumaczony |
-| `Ctrl+Shift+U` | następny **przetłumaczony** |
-| `Ctrl+Alt+N` | następny **niezatwierdzony** |
+| `Ctrl+Shift+U` | poprzedni nieprzetłumaczony |
+| `Ctrl+Shift+Y` | następny **przetłumaczony** |
+| `Ctrl+Shift+A` | następny **niezatwierdzony** |
 
 Skoki **zostają w przeglądanym pliku**: gdy masz otwarty jeden plik z listy, `Ctrl+U`
 i przyciski **◀◀** / **▶▶** szukają tylko w nim i zawijają się w jego obrębie. Dopiero
@@ -1347,7 +1349,7 @@ i **wyraźnie pokazuje**:
 * **w polu źródła i tłumaczenia wcięcie ma kolorowe tło** — widać je nawet przy jednej spacji,
 * gdy w źródle jest wcięcie, a w tłumaczeniu go **brakuje**, pierwszy znak tłumaczenia dostaje
   **czerwone tło z falowanym podkreśleniem** — od razu widać, że czegoś brakuje,
-* przycisk **␣ Wcięcie** (albo `Ctrl+Alt+W`) nadaje tłumaczeniu spacje ze źródła,
+* przycisk **␣ Wcięcie** (albo `Ctrl+Shift+W`) nadaje tłumaczeniu spacje ze źródła,
 * nad polem tłumaczenia widnieje informacja `␣ wcięcie: ␣1 z przodu`,
 * każde tłumaczenie wstawione z TM, MT, AI lub dopasowania zdań **dziedziczy spacje źródła**,
 * eksport odtwarza plik z tymi samymi wcięciami,
@@ -1409,12 +1411,12 @@ masowych. Pomiary (`python bench_tm.py`, TM 20 000 wpisów):
 
 **Licznik czasu** — nad polem tłumaczenia widnieje pomiar ostatniego wyszukiwania:
 `TM 224 ms • ZD 790 ms • ⏱ 1422 ms • TM: 10840` (dopasowania rozmyte, dopasowanie zdań, czas od
-zmiany segmentu, rozmiar pamięci). **Kliknięcie kopiuje pomiar do schowka** (albo `Ctrl+Alt+T`)
+zmiany segmentu, rozmiar pamięci). **Kliknięcie kopiuje pomiar do schowka** (albo `Ctrl+Shift+P`)
 wraz z numerem segmentu i jego długością – gotowe do wklejenia w zgłoszeniu.
 Jednostki (ms / s / min / automatycznie) wybiera się w *Ustawieniach → Ogólne*.
 
 **Przełącznik dopasowania zdań w trzech miejscach** — pole „Włącz dopasowanie zdań" wprost
-w panelu, pozycja w menu *Widok* (`Ctrl+Alt+S`) oraz pełne ustawienia w *Ustawieniach →
+w panelu, pozycja w menu *Widok* (`Ctrl+Shift+M`) oraz pełne ustawienia w *Ustawieniach →
 Pamięć TM*. Wszystkie trzy są ze sobą zsynchronizowane.
 
 **Natychmiastowa reakcja** — odstęp przed startem wyszukiwania jest **adaptacyjny**: startuje po
@@ -1548,23 +1550,23 @@ wprost przez model z flagą `ClearAndSelect`.
 | `Ctrl+D` | kopiuj źródło do tłumaczenia |
 | `Ctrl+Spacja` | wstaw najlepsze dopasowanie z TM |
 | `Ctrl+M` | tłumaczenie maszynowe segmentu |
-| `Ctrl+Alt+Q` | ⚡ QuickTrans – porównanie wielu silników |
-| `Ctrl+Alt+E` | 📝 Edytor pamięci TM / TMX |
-| `Ctrl+Alt+S` | 🔗 Włącz/wyłącz dopasowanie zdań |
-| `Ctrl+Alt+T` | 📋 Kopiuj pomiar czasu do schowka |
+| `Ctrl+Shift+Q` | ⚡ QuickTrans – porównanie wielu silników |
+| `Ctrl+Shift+X` | 📝 Edytor pamięci TM / TMX |
+| `Ctrl+Shift+M` | 🔗 Włącz/wyłącz dopasowanie zdań |
+| `Ctrl+Shift+P` | 📋 Kopiuj pomiar czasu do schowka |
 | `Ctrl+Shift+S` | zapisz segment do TM |
 | `Ctrl+F` | znajdź i zamień — osobne okno albo zakładka (do wyboru w Ustawieniach) |
 | `Ctrl+Shift+N` | nowe okno wyszukiwania (można mieć kilka naraz) |
 | `Esc` | zamknij okno wyszukiwania |
-| `Ctrl+Alt+W` | nadaj tłumaczeniu wcięcie ze źródła |
-| `Ctrl+Alt+J` | sprawdź poprawność języka w tłumaczeniu |
+| `Ctrl+Shift+W` | nadaj tłumaczeniu wcięcie ze źródła |
+| `Ctrl+Shift+J` | sprawdź poprawność języka w tłumaczeniu |
 | `Ctrl+Z` / `Ctrl+Y` | cofnij / ponów — tekst **oraz oznaczenia** |
 | `Ctrl+Shift+I` / `Ctrl+Shift+R` | pomiń / przywróć zaznaczone segmenty |
-| `Ctrl+U` / `Ctrl+Alt+U` | następny / poprzedni nieprzetłumaczony segment |
-| `Ctrl+Shift+U` / `Ctrl+Alt+N` | następny przetłumaczony / niezatwierdzony |
+| `Ctrl+U` / `Ctrl+Shift+U` | następny / poprzedni nieprzetłumaczony segment |
+| `Ctrl+Shift+Y` / `Ctrl+Shift+A` | następny przetłumaczony / niezatwierdzony |
 | prawy przycisk w polu tłumaczenia | propozycje poprawek, dodanie wyrazu do słownika |
 | `Ctrl+Shift+F` | szukaj zaznaczonego wyrazu w całym projekcie |
-| `Ctrl+Alt+F` | szukaj zaznaczonego wyrazu tylko w bieżącym pliku |
+| `Ctrl+Shift+E` | szukaj zaznaczonego wyrazu tylko w bieżącym pliku |
 | `F3` / `Shift+F3` | następny / poprzedni wynik wyszukiwania |
 | `F5` / `F8` / `F9` / `F1` | przeładuj source/ / QA / statystyki / pomoc |
 | `Ctrl+T` / `Ctrl++` / `Ctrl+-` | motyw / większa / mniejsza czcionka |
@@ -1859,7 +1861,7 @@ zapasowy punkt dostępowy Google przy limicie 429, czytelne komunikaty błędów
 instalacja i uruchamianie własnego serwera LibreTranslate z poziomu programu (wykrywanie pakietu, wybór języków, bezpieczne zatrzymywanie),
 czytelny komunikat DeepL o wymaganym kluczu z darmowym planem,
 „Zatwierdź i dalej” zmieniające oznaczenie i skaczące do segmentu do zrobienia, oznaczenie „przetłumaczony” liczone w postępie,
-zatwierdzony jako segment wykonany w licznikach, nawigacja w stylu OmegaT (Ctrl+U, Ctrl+Shift+U, Ctrl+Alt+U, Ctrl+Alt+N z zawijaniem i omijaniem pominiętych),
+zatwierdzony jako segment wykonany w licznikach, nawigacja w stylu OmegaT (Ctrl+U, Ctrl+Shift+U, Ctrl+Shift+Y, Ctrl+Shift+A z zawijaniem i omijaniem pominiętych),
 podkreślanie błędów w polu tłumaczenia (czerwona falka dla literówek), menu podręczne z propozycjami i podmianą wyrazu,
 dwuetapowe liczenie propozycji (szybkie od razu, dokładne w tle), dodawanie wyrazu do słownika użytkownika,
 główny wyłącznik i szczegółowe przełączniki kontroli języka,
@@ -1906,6 +1908,10 @@ supercat/
     ├── quicktrans.py    # ⚡ popup z wieloma silnikami MT
     ├── tmx_editor.py    # 📝 edytor pamięci TM / plików TMX
     └── dialogs/project_dialogs.py
+```
+
+Warstwa `core/` nie zależy od Qt — można jej używać w skryptach bez GUI.
+
 ```
 
 Warstwa `core/` nie zależy od Qt — można jej używać w skryptach bez GUI.

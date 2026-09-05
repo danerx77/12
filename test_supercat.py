@@ -1784,7 +1784,7 @@ Dziękujemy za korzystanie z MYSTERY"""
 
     ed.load_segment(0)
     ed.prev_untranslated()
-    check("Ctrl+Alt+U cofa do nieprzetłumaczonego",
+    check("poprzedni nieprzetłumaczony cofa do pustego segmentu",
           not _is_done_seg(ed.segments[ed.current_index]), str(ed.current_index))
 
     ed.segments[1].status = "approved"
@@ -6166,7 +6166,50 @@ Dziękujemy za korzystanie z MYSTERY"""
           _sc28.blocks_polish_letters("Ctrl+Alt+S")
           and _sc28.blocks_polish_letters("Alt+E")
           and not _sc28.blocks_polish_letters("Ctrl+Shift+U")
-          and not _sc28.blocks_polish_letters("F5"))
+          and not _sc28.blocks_polish_letters("F5")
+          and not _sc28.blocks_polish_letters("Alt+Up"))
+    check("skróty: żaden domyślny nie zawiera Ctrl+Alt",
+          not any("Ctrl+Alt" in s.default for s in _sc28.SHORTCUTS),
+          str([s.default for s in _sc28.SHORTCUTS if "Ctrl+Alt" in s.default]))
+    for _k28, _seq28 in (("close_project", "Ctrl+W"), ("quit", "Ctrl+Q"),
+                         ("toggle_sentence", "Ctrl+Shift+M"), ("toggle_theme", "Ctrl+T"),
+                         ("export_files", "Ctrl+E"), ("quicktrans", "Ctrl+Shift+Q"),
+                         ("tmx_editor", "Ctrl+Shift+X"), ("about", "F1"),
+                         ("first_segment", "Ctrl+Home"), ("last_segment", "Ctrl+End"),
+                         ("run_qa", "F8"), ("statistics", "F9")):
+        check(f"skróty: rejestr ma {_k28}={_seq28}",
+              _sc28.get(_k28) == _seq28, _sc28.get(_k28))
+    check("skróty: with_shortcut dokleja kombinację",
+          _sc28.with_shortcut("save_all", "Zapisz") == "Zapisz (Ctrl+S)")
+    check("skróty: with_shortcut nie dubluje",
+          _sc28.with_shortcut("save_all", "Zapisz (Ctrl+S)") == "Zapisz (Ctrl+S)")
+    check("edytor: first/last segment w skrótach edytora",
+          "first_segment" in w.editor_tab._shortcut_actions()
+          and "last_segment" in w.editor_tab._shortcut_actions())
+    from PyQt6.QtWidgets import QMenu as _QMenu28
+    _menu_titles = [m.title() for m in w.findChildren(_QMenu28) if m.title()]
+    check("menu: tytuły bez znaku & (mnemoniki nie zjadają Alt+litera)",
+          all("&" not in title for title in _menu_titles), str(_menu_titles[:8]))
+    from PyQt6.QtGui import QAction as _QAct28
+    def _eats_letter(seq: str) -> bool:
+        parts = [p for p in seq.replace(" ", "").split("+") if p]
+        return bool(parts) and parts[-1].isalpha() and len(parts[-1]) == 1 and (
+            "Ctrl+Alt" in seq or (seq.startswith("Alt+") and "Shift" not in seq)
+        )
+    _ctrl_alt_acts = [f"{a.shortcut().toString()} ({a.text()[:24]})"
+                      for a in w.findChildren(_QAct28)
+                      if _eats_letter(a.shortcut().toString())]
+    check("menu: żadna akcja nie ma skrótu Ctrl+Alt / Alt+litera",
+          not _ctrl_alt_acts, str(_ctrl_alt_acts))
+    import inspect as _insp28d
+    from supercat.ui.main_window import MainWindow as _MW28d
+    check("wygląd: apply_theme odświeża splittery",
+          "restyle_splitters" in _insp28d.getsource(_MW28d.apply_theme))
+    from supercat.app import _install_altgr_filter as _altgr28
+    check("AltGr: filtr ShortcutOverride jest w app.py",
+          "ShortcutOverride" in _insp28d.getsource(_altgr28))
+    check("pasek: podpowiedzi niosą skrót z rejestru",
+          hasattr(w, "_toolbar_tips") and any(k == "save_all" for _a, k, _t in w._toolbar_tips))
 
     _en28 = ("It floats midair using magnetism. Its body\\nis so tough, "
              "even a crash with a jet\\nplane won't leave a scratch.")

@@ -819,7 +819,8 @@ class EditorTab(QWidget):
         mt_bar.addWidget(translate_btn)
 
         compare_btn = QPushButton("⚡ Porównaj")
-        compare_btn.setToolTip("Ctrl+Alt+Q – QuickTrans: kilka silników naraz")
+        from ..core import shortcuts as _sc_qt
+        compare_btn.setToolTip(_sc_qt.with_shortcut("quicktrans", "QuickTrans: kilka silników naraz"))
         compare_btn.clicked.connect(lambda: self.app.open_quicktrans())
         mt_bar.addWidget(compare_btn)
         mt_bar.addStretch(1)
@@ -836,21 +837,22 @@ class EditorTab(QWidget):
         self.target_edit.customContextMenuRequested.connect(self._target_context_menu)
         ed_layout.addWidget(self.target_edit)
 
+        from ..core import shortcuts as _sc
         nav = QHBoxLayout()
         for text, tip, slot in (
-            ("◀ Poprzedni", "Alt+Up", self.prev_segment),
-            ("Następny ▶", "Alt+Down", self.next_segment),
-            ("◀◀", "Ctrl+Alt+U – poprzedni NIEPRZETŁUMACZONY segment",
+            ("◀ Poprzedni", "Alt+↑ – poprzedni segment", self.prev_segment),
+            ("Następny ▶", "Alt+↓ – następny segment", self.next_segment),
+            ("◀◀", _sc.with_shortcut("prev_untranslated", "poprzedni NIEPRZETŁUMACZONY segment"),
              self.prev_untranslated),
-            ("▶▶", "Ctrl+U – następny NIEPRZETŁUMACZONY segment",
+            ("▶▶", _sc.with_shortcut("next_untranslated", "następny NIEPRZETŁUMACZONY segment"),
              self.next_untranslated),
-            ("✔ Zatwierdź i dalej", "Ctrl+Enter", self.confirm_and_next),
-            ("💾 Do TM", "Ctrl+Shift+S – zapisz segment do pamięci", self.save_to_tm),
+            ("✔ Zatwierdź i dalej", _sc.with_shortcut("confirm_next", "zatwierdź i dalej"), self.confirm_and_next),
+            ("💾 Do TM", _sc.with_shortcut("save_to_tm", "zapisz segment do pamięci"), self.save_to_tm),
             # „🤖 Tłumacz” przeniesiony wyżej – obok wyboru silnika MT.
-            ("📋 Kopiuj źródło", "Ctrl+D", self.copy_source_to_target),
-            ("␣ Wcięcie", "Ctrl+Alt+W – nadaj tłumaczeniu takie same spacje na brzegach jak w źródle",
+            ("📋 Kopiuj źródło", _sc.with_shortcut("copy_source", "kopiuj źródło do tłumaczenia"), self.copy_source_to_target),
+            ("␣ Wcięcie", _sc.with_shortcut("restore_indent", "nadaj tłumaczeniu takie same spacje na brzegach jak w źródle"),
              self.restore_source_indent),
-            ("🚫 Pomiń", "Ctrl+Shift+I – pomiń zaznaczone segmenty (nie będą liczone)",
+            ("🚫 Pomiń", _sc.with_shortcut("ignore_selected", "pomiń zaznaczone segmenty (nie będą liczone)"),
              self.ignore_selected),
             ("🧹 Wyczyść", "Wyczyść tłumaczenie", self.clear_target),
         ):
@@ -972,7 +974,8 @@ class EditorTab(QWidget):
         gen_btn = QPushButton("🤖 Generuj")
         gen_btn.clicked.connect(self.machine_translate_preview)
         quick_btn = QPushButton("⚡ QuickTrans")
-        quick_btn.setToolTip("Porównaj tłumaczenia z wielu silników naraz (Ctrl+Alt+Q)")
+        from ..core import shortcuts as _sc_qt2
+        quick_btn.setToolTip(_sc_qt2.with_shortcut("quicktrans", "Porównaj tłumaczenia z wielu silników naraz"))
         quick_btn.clicked.connect(lambda: self.app.open_quicktrans())
         use_btn = QPushButton("⤵ Wstaw do tłumaczenia")
         use_btn.clicked.connect(lambda: self.set_target_text(self.mt_view.toPlainText()))
@@ -1015,7 +1018,8 @@ class EditorTab(QWidget):
 
         lang_btns = QHBoxLayout()
         check_now = QPushButton("🔤 Sprawdź teraz")
-        check_now.setToolTip("Ctrl+Alt+J")
+        from ..core import shortcuts as _sc_lang
+        check_now.setToolTip(_sc_lang.with_shortcut("check_language", "Sprawdź teraz"))
         check_now.clicked.connect(lambda: self.check_language(force=True))
         fix_btn = QPushButton("✨ Popraw automatycznie")
         fix_btn.setToolTip("Wstawia pierwszą propozycję dla uwag, które ją mają")
@@ -1158,6 +1162,8 @@ class EditorTab(QWidget):
             "mark_approved": self.approve_current,
             "ignore_selected": self.ignore_selected,
             "restore_selected": self.restore_selected,
+            "first_segment": self.first_segment,
+            "last_segment": self.last_segment,
         }
 
     def _build_shortcuts(self) -> None:
@@ -2210,7 +2216,8 @@ class EditorTab(QWidget):
         act_show_alt = menu.addAction("🔍 Pokaż tłumaczenia alternatywne")
         menu.addSeparator()
         act_find = menu.addAction("🔍 Szukaj zaznaczonego wyrazu w projekcie (Ctrl+Shift+F)")
-        act_find_file = menu.addAction("🔎 Szukaj tylko w tym pliku (Ctrl+Alt+F)")
+        from ..core import shortcuts as _sc_find
+        act_find_file = menu.addAction(_sc_find.with_shortcut("find_in_file", "🔎 Szukaj tylko w tym pliku"))
         menu.addSeparator()
         selected_now = self.selected_indices()
         many = f" ({len(selected_now)})" if len(selected_now) > 1 else ""
@@ -3552,7 +3559,7 @@ class EditorTab(QWidget):
         self._apply_target_selections()
 
     def restore_source_indent(self) -> None:
-        """Nadaje tłumaczeniu takie wcięcie, jakie ma źródło (przycisk / Ctrl+Alt+W)."""
+        """Nadaje tłumaczeniu takie wcięcie, jakie ma źródło (przycisk / skrót)."""
         seg = self.current_segment()
         if seg is None:
             return

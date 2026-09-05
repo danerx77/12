@@ -36,7 +36,7 @@ from .glossary_tab import DictionaryTab, GlossaryTab
 from .qa_tab import QATab
 from .search_tab import SearchTab
 from .settings_tab import SettingsTab
-from .theme import stylesheet
+from .theme import restyle_splitters, stylesheet
 from .workers import MTWorker, PreTranslateWorker, TMWarmupWorker, TMXImportWorker
 
 APP_NAME = "SuperCAT Workbench"
@@ -56,6 +56,7 @@ class MainWindow(QMainWindow):
         self.project_manager = ProjectManager.instance()
         self._exclusions = None
         self._menu_actions = {}
+        self._toolbar_tips = []
         self._lt_server = None
         self.tm = TranslationMemory()
         self.glossary = Glossary()
@@ -139,20 +140,20 @@ class MainWindow(QMainWindow):
     def _build_menu(self) -> None:
         menu = self.menuBar()
 
-        file_menu = menu.addMenu("📁 &Plik")
-        self._add_action(file_menu, "Nowy projekt…", "Ctrl+N", self.new_project, shortcut_key="new_project")
-        self._add_action(file_menu, "Otwórz projekt…", "Ctrl+O", self.open_project, shortcut_key="open_project")
+        file_menu = menu.addMenu("📁 Plik")
+        self._add_action(file_menu, "Nowy projekt…", None, self.new_project, shortcut_key="new_project")
+        self._add_action(file_menu, "Otwórz projekt…", None, self.open_project, shortcut_key="open_project")
         self.recent_menu = file_menu.addMenu("📂 Ostatnie projekty")
         self._refresh_recent_menu()
         file_menu.addSeparator()
-        self._add_action(file_menu, "Zapisz projekt i tłumaczenia", "Ctrl+S", self.save_all)
-        self._add_action(file_menu, "Zamknij projekt", "Ctrl+W", self.close_project)
+        self._add_action(file_menu, "Zapisz projekt i tłumaczenia", None, self.save_all, shortcut_key="save_all")
+        self._add_action(file_menu, "Zamknij projekt", None, self.close_project, shortcut_key="close_project")
         file_menu.addSeparator()
-        self._add_action(file_menu, "Importuj pliki…", "Ctrl+I", self.import_files, shortcut_key="import_files")
-        self._add_action(file_menu, "Wczytaj ponownie folder source/", "F5", self.reload_source_folder)
+        self._add_action(file_menu, "Importuj pliki…", None, self.import_files, shortcut_key="import_files")
+        self._add_action(file_menu, "Wczytaj ponownie folder source/", None, self.reload_source_folder, shortcut_key="reload_source")
         file_menu.addSeparator()
         export_menu = file_menu.addMenu("📤 Eksportuj")
-        self._add_action(export_menu, "Przetłumaczone pliki do target/", "Ctrl+E", self.export_target_files)
+        self._add_action(export_menu, "Przetłumaczone pliki do target/", None, self.export_target_files, shortcut_key="export_files")
         self._add_action(export_menu, "XLIFF…", None, lambda: self.export_as("xliff"))
         self._add_action(export_menu, "TMX (pamięć TM)…", None, self.export_tmx)
         self._add_action(export_menu, "PO…", None, lambda: self.export_as("po"))
@@ -160,28 +161,22 @@ class MainWindow(QMainWindow):
         self._add_action(export_menu, "HTML dwujęzyczny…", None, lambda: self.export_as("html"))
         self._add_action(export_menu, "TXT…", None, lambda: self.export_as("txt"))
         file_menu.addSeparator()
-        self._add_action(file_menu, "Zakończ", "Ctrl+Q", self.close)
+        self._add_action(file_menu, "Zakończ", None, self.close, shortcut_key="quit")
 
-        edit_menu = menu.addMenu("✏️ &Edycja")
-        self._add_action(edit_menu, "Cofnij", "Ctrl+Z", self.undo_action, shortcut_key="undo")
-        self._add_action(edit_menu, "Ponów", "Ctrl+Y", self.redo_action, shortcut_key="redo")
-        self._add_action(edit_menu, "Ponów", "Ctrl+Y", lambda: self.editor_tab.target_edit.redo())
-        edit_menu.addSeparator()
+        edit_menu = menu.addMenu("✏️ Edycja")
+        self._add_action(edit_menu, "Cofnij", None, self.undo_action, shortcut_key="undo")
+        self._add_action(edit_menu, "Ponów", None, self.redo_action, shortcut_key="redo")
         edit_menu.addSeparator()
         nav_menu = edit_menu.addMenu("↕️ Nawigacja po segmentach")
-        self._add_action(nav_menu, "Następny segment", "Ctrl+Down",
-                         lambda: self.editor_tab.next_segment())
-        self._add_action(nav_menu, "Poprzedni segment", "Ctrl+Up",
-                         lambda: self.editor_tab.prev_segment())
-        self._add_action(nav_menu, "Następny segment (Alt)", "Alt+Down",
-                         lambda: self.editor_tab.next_segment())
-        self._add_action(nav_menu, "Poprzedni segment (Alt)", "Alt+Up",
-                         lambda: self.editor_tab.prev_segment())
+        self._add_action(nav_menu, "Następny segment", None,
+                         lambda: self.editor_tab.next_segment(), shortcut_key="next_segment")
+        self._add_action(nav_menu, "Poprzedni segment", None,
+                         lambda: self.editor_tab.prev_segment(), shortcut_key="prev_segment")
         nav_menu.addSeparator()
-        self._add_action(nav_menu, "Pierwszy segment", "Ctrl+Home",
-                         lambda: self.editor_tab.first_segment())
-        self._add_action(nav_menu, "Ostatni segment", "Ctrl+End",
-                         lambda: self.editor_tab.last_segment())
+        self._add_action(nav_menu, "Pierwszy segment", None,
+                         lambda: self.editor_tab.first_segment(), shortcut_key="first_segment")
+        self._add_action(nav_menu, "Ostatni segment", None,
+                         lambda: self.editor_tab.last_segment(), shortcut_key="last_segment")
         nav_menu.addSeparator()
         self._add_action(nav_menu, "Następny nieprzetłumaczony", None,
                          lambda: self.editor_tab.next_untranslated(), shortcut_key="next_untranslated")
@@ -199,8 +194,8 @@ class MainWindow(QMainWindow):
                          lambda: self.find_in_project(), shortcut_key="find_selected")
         self._add_action(edit_menu, "Szukaj zaznaczonego wyrazu w tym pliku", None,
                          lambda: self.find_in_project("Tylko przeglądany plik"), shortcut_key="find_in_file")
-        self._add_action(edit_menu, "Nowe okno wyszukiwania", "Ctrl+Shift+N",
-                         lambda: self.open_search_window(self.selected_editor_text()))
+        self._add_action(edit_menu, "Nowe okno wyszukiwania", None,
+                         lambda: self.open_search_window(self.selected_editor_text()), shortcut_key="new_search_window")
         self._add_action(edit_menu, "Wyszukiwanie w zakładce", None,
                          lambda: self.tabs.setCurrentWidget(self.search_tab))
         self._add_action(edit_menu, "Następny wynik wyszukiwania", None,
@@ -208,19 +203,19 @@ class MainWindow(QMainWindow):
         self._add_action(edit_menu, "Poprzedni wynik wyszukiwania", None,
                          lambda: self._active_search_panel().prev_result(), shortcut_key="prev_result")
 
-        project_menu = menu.addMenu("📦 P&rojekt")
+        project_menu = menu.addMenu("📦 Projekt")
         self._add_action(project_menu, "Ustawienia projektu…", None, self.open_project_settings)
         self._add_action(project_menu, "Podgląd segmentacji…", None, self.open_segmentation_preview)
         project_menu.addSeparator()
         status_menu = project_menu.addMenu("🏷️ Oznacz zaznaczone jako")
-        self._add_action(status_menu, "○ nowy", None, lambda: self.editor_tab.mark_new())
+        self._add_action(status_menu, "○ nowy", None, lambda: self.editor_tab.mark_new(), shortcut_key="mark_new")
         self._add_action(status_menu, "🔵 do przetłumaczenia", None,
                          lambda: self.editor_tab.mark_todo(), shortcut_key="mark_todo")
-        self._add_action(status_menu, "✎ roboczy", None, lambda: self.editor_tab.mark_draft())
+        self._add_action(status_menu, "✎ roboczy", None, lambda: self.editor_tab.mark_draft(), shortcut_key="mark_draft")
         self._add_action(status_menu, "✓ przetłumaczony", None,
-                         lambda: self.editor_tab.mark_translated())
+                         lambda: self.editor_tab.mark_translated(), shortcut_key="mark_translated")
         self._add_action(status_menu, "★ zatwierdzony", None,
-                         lambda: self.editor_tab.approve_current())
+                         lambda: self.editor_tab.approve_current(), shortcut_key="mark_approved")
         self._add_action(project_menu, "Pomiń zaznaczone segmenty", None,
                          lambda: self.editor_tab.ignore_selected(), shortcut_key="ignore_selected")
         self._add_action(project_menu, "Przywróć zaznaczone segmenty", None,
@@ -249,18 +244,18 @@ class MainWindow(QMainWindow):
         ):
             self._add_action(folders, label, None, lambda checked=False, a=attr: self.open_folder(a))
 
-        tools_menu = menu.addMenu("🛠️ &Narzędzia")
-        self._add_action(tools_menu, "⚡ QuickTrans (wiele silników)…", "Ctrl+Alt+Q", self.open_quicktrans)
+        tools_menu = menu.addMenu("🛠️ Narzędzia")
+        self._add_action(tools_menu, "⚡ QuickTrans (wiele silników)…", None, self.open_quicktrans, shortcut_key="quicktrans")
         self._add_action(tools_menu, "Tłumacz wszystko darmowymi silnikami", None,
                          lambda: self.translate_all_mt(free_only=True))
         tools_menu.addSeparator()
-        self._add_action(tools_menu, "Kontrola jakości QA", "F8", self.run_qa)
-        self._add_action(tools_menu, "Statystyki projektu", "F9", self.show_statistics)
+        self._add_action(tools_menu, "Kontrola jakości QA", None, self.run_qa, shortcut_key="run_qa")
+        self._add_action(tools_menu, "Statystyki projektu", None, self.show_statistics, shortcut_key="statistics")
         self._add_action(tools_menu, "⚡ Zużycie silników MT", None, self.show_usage_report)
         self._add_action(tools_menu, "📋 Kopiuj pomiar czasu", None,
                          lambda: self.editor_tab.copy_timing(), shortcut_key="copy_timing")
         tools_menu.addSeparator()
-        self._add_action(tools_menu, "📝 Edytor pamięci TM / TMX…", "Ctrl+Alt+E", self.open_tmx_editor)
+        self._add_action(tools_menu, "📝 Edytor pamięci TM / TMX…", None, self.open_tmx_editor, shortcut_key="tmx_editor")
         tools_menu.addSeparator()
         self._add_action(tools_menu, "Importuj TMX…", None, self.import_tmx)
         self._add_action(tools_menu, "Eksportuj TMX…", None, self.export_tmx)
@@ -268,29 +263,34 @@ class MainWindow(QMainWindow):
                          lambda: self.export_project_tm_to_tmx(silent=False))
         self._add_action(tools_menu, "Importuj glosariusz…", None, lambda: self.glossary_tab.import_glossary())
 
-        view_menu = menu.addMenu("👁️ &Widok")
+        view_menu = menu.addMenu("👁️ Widok")
         self.sentence_action = QAction("🔗 Dopasowanie zdań", self)
         self.sentence_action.setCheckable(True)
         self.sentence_action.setChecked(
             self.settings.get_bool("tm.sentence.matching.enabled", False)
         )
-        self.sentence_action.setShortcut(QKeySequence("Ctrl+Alt+S"))
+        from ..core import shortcuts as _sc
+        _sent = _sc.get("toggle_sentence")
+        if _sent:
+            self.sentence_action.setShortcut(QKeySequence(_sent))
+            self.sentence_action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self.sentence_action.toggled.connect(self._toggle_sentence_from_menu)
         view_menu.addAction(self.sentence_action)
+        self._menu_actions["toggle_sentence"] = self.sentence_action
         view_menu.addSeparator()
-        self._add_action(view_menu, "Przełącz motyw (ciemny/jasny)", "Ctrl+T", self.toggle_theme)
-        self._add_action(view_menu, "Powiększ czcionkę edytora", "Ctrl++", lambda: self.change_font(1))
-        self._add_action(view_menu, "Zmniejsz czcionkę edytora", "Ctrl+-", lambda: self.change_font(-1))
-        self._add_action(view_menu, "Powiększ czcionkę interfejsu", "Ctrl+Shift++",
-                         lambda: self.change_ui_font(1))
-        self._add_action(view_menu, "Zmniejsz czcionkę interfejsu", "Ctrl+Shift+-",
-                         lambda: self.change_ui_font(-1))
+        self._add_action(view_menu, "Przełącz motyw (ciemny/jasny)", None, self.toggle_theme, shortcut_key="toggle_theme")
+        self._add_action(view_menu, "Powiększ czcionkę edytora", None, lambda: self.change_font(1), shortcut_key="font_plus")
+        self._add_action(view_menu, "Zmniejsz czcionkę edytora", None, lambda: self.change_font(-1), shortcut_key="font_minus")
+        self._add_action(view_menu, "Powiększ czcionkę interfejsu", None,
+                         lambda: self.change_ui_font(1), shortcut_key="ui_font_plus")
+        self._add_action(view_menu, "Zmniejsz czcionkę interfejsu", None,
+                         lambda: self.change_ui_font(-1), shortcut_key="ui_font_minus")
         view_menu.addSeparator()
         self._add_action(view_menu, "↺ Przywróć układ paneli", "",
                          self.reset_panel_layout)
 
-        help_menu = menu.addMenu("❓ Pomo&c")
-        self._add_action(help_menu, "O programie / skróty klawiszowe", "F1", self.show_about)
+        help_menu = menu.addMenu("❓ Pomoc")
+        self._add_action(help_menu, "O programie / skróty klawiszowe", None, self.show_about, shortcut_key="about")
 
     def _add_action(self, menu: QMenu, text: str, shortcut: Optional[str], slot,
                     shortcut_key: Optional[str] = None) -> QAction:
@@ -326,7 +326,13 @@ class MainWindow(QMainWindow):
         from ..core import shortcuts as _sc
 
         for key, action in getattr(self, "_menu_actions", {}).items():
-            action.setShortcut(QKeySequence(_sc.get(key)))
+            sequence = _sc.get(key)
+            action.setShortcut(QKeySequence(sequence))
+            definition = _sc.BY_KEY.get(key)
+            if definition is not None and definition.editor:
+                action.setShortcutContext(Qt.ShortcutContext.WidgetShortcut)
+        for action, key, text in getattr(self, "_toolbar_tips", []):
+            action.setToolTip(_sc.with_shortcut(key, text) if key else text)
         self.editor_tab.reload_shortcuts()
         self.show_status("Zastosowano nowe skróty klawiszowe")
 
@@ -334,30 +340,34 @@ class MainWindow(QMainWindow):
         toolbar = QToolBar("Główny")
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
-        for text, tip, slot in (
-            ("📁 Nowy", "Nowy projekt (Ctrl+N)", self.new_project),
-            ("📂 Otwórz", "Otwórz projekt (Ctrl+O)", self.open_project),
-            ("💾 Zapisz", "Zapisz projekt i tłumaczenia (Ctrl+S)", self.save_all),
-            (None, None, None),
-            ("➕ Importuj pliki", "Importuj pliki do projektu (Ctrl+I)", self.import_files),
-            ("📤 Eksportuj", "Eksportuj przetłumaczone pliki (Ctrl+E)", self.export_target_files),
-            (None, None, None),
-            ("🤖 Tłumacz segment", "Tłumaczenie maszynowe (Ctrl+M)", lambda: self.editor_tab.machine_translate_current()),
-            ("⚡ QuickTrans", "Tłumaczenie z wielu silników naraz (Ctrl+Alt+Q)", self.open_quicktrans),
-            ("🤖 Tłumacz wszystko", "Tłumaczenie maszynowe całego projektu", self.translate_all_mt),
-            ("💡 Zastosuj TM", "Wstaw dopasowania TM do pustych segmentów", self.apply_tm_to_all),
-            (None, None, None),
-            ("✅ QA", "Kontrola jakości (F8)", self.run_qa),
-            ("📊 Statystyki", "Statystyki projektu (F9)", self.show_statistics),
-            ("⚙️ Ustawienia", "Ustawienia programu", lambda: self.tabs.setCurrentWidget(self.settings_tab)),
+        from ..core import shortcuts as _sc
+        self._toolbar_tips = []
+        for text, key, tip, slot in (
+            ("📁 Nowy", "new_project", "Nowy projekt", self.new_project),
+            ("📂 Otwórz", "open_project", "Otwórz projekt", self.open_project),
+            ("💾 Zapisz", "save_all", "Zapisz projekt i tłumaczenia", self.save_all),
+            (None, None, None, None),
+            ("➕ Importuj pliki", "import_files", "Importuj pliki do projektu", self.import_files),
+            ("📤 Eksportuj", "export_files", "Eksportuj przetłumaczone pliki", self.export_target_files),
+            (None, None, None, None),
+            ("🤖 Tłumacz segment", "machine_translate", "Tłumaczenie maszynowe", lambda: self.editor_tab.machine_translate_current()),
+            ("⚡ QuickTrans", "quicktrans", "Tłumaczenie z wielu silników naraz", self.open_quicktrans),
+            ("🤖 Tłumacz wszystko", None, "Tłumaczenie maszynowe całego projektu", self.translate_all_mt),
+            ("💡 Zastosuj TM", None, "Wstaw dopasowania TM do pustych segmentów", self.apply_tm_to_all),
+            (None, None, None, None),
+            ("✅ QA", "run_qa", "Kontrola jakości", self.run_qa),
+            ("📊 Statystyki", "statistics", "Statystyki projektu", self.show_statistics),
+            ("⚙️ Ustawienia", None, "Ustawienia programu", lambda: self.tabs.setCurrentWidget(self.settings_tab)),
         ):
             if text is None:
                 toolbar.addSeparator()
                 continue
             action = QAction(text, self)
-            action.setToolTip(tip)
+            shown = _sc.with_shortcut(key, tip) if key else tip
+            action.setToolTip(shown)
             action.triggered.connect(slot)
             toolbar.addAction(action)
+            self._toolbar_tips.append((action, key, tip))
 
     # ------------------------------------------------------------- motywy
     def _ui_font_px(self) -> int:
@@ -368,11 +378,12 @@ class MainWindow(QMainWindow):
     def apply_theme(self) -> None:
         dark = self.settings.get_bool("theme.dark", True)
         QApplication.instance().setStyleSheet(stylesheet(dark, self._ui_font_px()))
+        restyle_splitters(self, dark)
         self.editor_tab.colors.dark = dark
         self.editor_tab.refresh_grid()
 
     def _toggle_sentence_from_menu(self, checked: bool) -> None:
-        """Włącza/wyłącza dopasowanie zdań z menu Widok (Ctrl+Alt+S)."""
+        """Włącza/wyłącza dopasowanie zdań z menu Widok."""
         self.settings.set("tm.sentence.matching.enabled", checked)
         self.editor_tab.sync_sentence_toggle()
         box = getattr(self.settings_tab, "sentence_matching", None)
