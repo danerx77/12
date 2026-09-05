@@ -65,6 +65,8 @@ DEFAULTS: Dict[str, Any] = {
     "lang.underline.background": False,
     #: Układ paneli po prawej: "stacked" (wszystko naraz) lub "tabs" (zakładki).
     "tm.panel.layout": "stacked",
+    "tm.panel.order": '["matches", "sentences", "terms", "conc", "mt", "lang", "notes"]',
+    "tm.panel.zones": "{}",
     #: Które panele po prawej w ogóle pokazywać.
     "tm.panel.show.matches": True,
     "tm.panel.show.sentences": True,

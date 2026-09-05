@@ -5,20 +5,21 @@ Układ inspirowany Supervertaler Workbench:
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import time as _time
 from typing import List, Optional, Sequence
 
-from PyQt6.QtCore import QEvent, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import (QAction, QBrush, QColor, QFont, QKeySequence, QPainter, QPainterPath,
+from PyQt6.QtCore import QEvent, QMimeData, QPoint, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import (QAction, QBrush, QColor, QDrag, QFont, QKeySequence, QPainter, QPainterPath,
                          QPalette, QPen, QShortcut, QTextCharFormat, QTextCursor)
 from PyQt6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QHBoxLayout,
     QHeaderView, QLabel,
     QApplication, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
     QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit,
-    QGroupBox, QGridLayout, QProgressBar, QScrollArea,
+    QGroupBox, QGridLayout, QProgressBar, QScrollArea, QStyle,
     QPushButton, QSizePolicy, QSplitter, QSplitterHandle, QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QToolButton, QVBoxLayout,
     QWidget,
 )
@@ -665,6 +666,110 @@ class ExpandingHandle(QSplitterHandle):
             pass
 
 
+PANEL_KEYS = ("matches", "sentences", "terms", "conc", "mt", "lang", "notes")
+PANEL_MIME = "application/x-supercat-panel"
+PANEL_LABELS = {
+    "matches": "Dopasowania TM",
+    "sentences": "Dopasowanie zdań",
+    "terms": "Terminy",
+    "conc": "Konkordancja",
+    "mt": "MT",
+    "lang": "Język",
+    "notes": "Notatki",
+}
+
+
+class DockableGroup(QGroupBox):
+    """Panel z tytułem do chwycenia: przeciągnij, żeby zmienić miejsce."""
+
+    def __init__(self, title: str, key: str, editor: "EditorTab") -> None:
+        super().__init__(title)
+        self._panel_key = key
+        self._editor = editor
+        self._drag_start: QPoint | None = None
+        self.setAcceptDrops(True)
+        self.setProperty("sc_panel_key", key)
+        self.setCursor(Qt.CursorShape.SizeAllCursor)
+        self.setToolTip(
+            "Chwyć tytuł i przeciągnij: w prawej kolumnie (kolejność)\n"
+            "albo pod tłumaczenie. Prawy przycisk — menu miejsca.")
+
+    def _title_height(self) -> int:
+        return max(22, self.fontMetrics().height() + 10)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton and event.position().y() <= self._title_height():
+            self._drag_start = event.position().toPoint()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if self._drag_start is None or not (event.buttons() & Qt.MouseButton.LeftButton):
+            super().mouseMoveEvent(event)
+            return
+        if (event.position().toPoint() - self._drag_start).manhattanLength() < QApplication.startDragDistance():
+            return
+        mime = QMimeData()
+        mime.setData(PANEL_MIME, self._panel_key.encode("utf-8"))
+        mime.setText(self._panel_key)
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        self._drag_start = None
+        drag.exec(Qt.DropAction.MoveAction)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        self._drag_start = None
+        super().mouseReleaseEvent(event)
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802
+        if event.mimeData().hasFormat(PANEL_MIME):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event) -> None:  # noqa: N802
+        raw = bytes(event.mimeData().data(PANEL_MIME)).decode("utf-8")
+        if raw and raw != self._panel_key:
+            zone = self._editor.panel_zone(self._panel_key)
+            self._editor.place_panel(raw, zone=zone, before=self._panel_key)
+        event.acceptProposedAction()
+
+    def contextMenuEvent(self, event) -> None:  # noqa: N802
+        menu = QMenu(self)
+        zone = self._editor.panel_zone(self._panel_key)
+        if zone != "below":
+            menu.addAction("Umieść pod tłumaczeniem",
+                           lambda: self._editor.place_panel(self._panel_key, zone="below"))
+        if zone != "right":
+            menu.addAction("Umieść w prawej kolumnie",
+                           lambda: self._editor.place_panel(self._panel_key, zone="right"))
+        menu.addSeparator()
+        menu.addAction("Wyżej", lambda: self._editor.nudge_panel(self._panel_key, -1))
+        menu.addAction("Niżej", lambda: self._editor.nudge_panel(self._panel_key, 1))
+        menu.exec(event.globalPos())
+
+
+class PanelDropHost(QWidget):
+    """Miejsce, na które można upuścić panel (prawa kolumna albo pod tłumaczeniem)."""
+
+    def __init__(self, editor: "EditorTab", zone: str, parent=None) -> None:
+        super().__init__(parent)
+        self._editor = editor
+        self._zone = zone
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802
+        if event.mimeData().hasFormat(PANEL_MIME):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event) -> None:  # noqa: N802
+        raw = bytes(event.mimeData().data(PANEL_MIME)).decode("utf-8")
+        if raw:
+            self._editor.place_panel(raw, zone=self._zone)
+        event.acceptProposedAction()
+
+
 class EditorTab(QWidget):
     """Główna zakładka pracy tłumacza."""
 
@@ -999,8 +1104,29 @@ class EditorTab(QWidget):
         nav.addWidget(self.info_label)
         ed_layout.addLayout(nav)
 
+        # Strefa pod tłumaczeniem: tu można upuścić np. Dopasowania TM.
+        self._below_host = PanelDropHost(self, "below")
+        below_l = QVBoxLayout(self._below_host)
+        below_l.setContentsMargins(4, 4, 4, 4)
+        below_l.setSpacing(4)
+        self._below_hint = QLabel(
+            "⬇ Upuść tu panel (np. Dopasowania TM), żeby mieć go pod tłumaczeniem")
+        self._below_hint.setWordWrap(True)
+        self._below_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._below_hint.setStyleSheet("color: gray; font-size: 11px; padding: 4px;")
+        below_l.addWidget(self._below_hint)
+        self._below_stack = None
+        self._work_splitter = QSplitter(Qt.Orientation.Vertical)
+        self._work_splitter.addWidget(editors)
+        self._work_splitter.addWidget(self._below_host)
+        self._work_splitter.setStretchFactor(0, 3)
+        self._work_splitter.setStretchFactor(1, 1)
+        self._work_splitter.setChildrenCollapsible(False)
+        self._below_host.setMinimumHeight(32)
+        self._below_host.setMaximumHeight(36)
+
         center.addWidget(grid_box)
-        center.addWidget(editors)
+        center.addWidget(self._work_splitter)
         center.setStretchFactor(0, 3)
         center.setStretchFactor(1, 2)
         setup_splitter(center, minimums=[120, 160])
@@ -1252,6 +1378,17 @@ class EditorTab(QWidget):
         if (event.type() == QEvent.Type.Resize and container is not None
                 and obj in (container, getattr(container, "viewport", lambda: None)())):
             self._sync_right_stack_size()
+        if event.type() in (QEvent.Type.DragEnter, QEvent.Type.Drop) and obj is container:
+            mime = getattr(event, "mimeData", lambda: None)()
+            if mime is not None and mime.hasFormat(PANEL_MIME):
+                if event.type() == QEvent.Type.DragEnter:
+                    event.acceptProposedAction()
+                    return True
+                raw = bytes(mime.data(PANEL_MIME)).decode("utf-8")
+                if raw:
+                    self.place_panel(raw, zone="right")
+                event.acceptProposedAction()
+                return True
         if event.type() == QEvent.Type.KeyPress:
             mods = event.modifiers()
             key = event.key()
@@ -1866,6 +2003,178 @@ class EditorTab(QWidget):
         if list(stack.sizes()) != sizes:
             stack.setSizes(sizes)
 
+    def _panel_order(self) -> list[str]:
+        known = [key for _t, _w, key in self._right_panels]
+        raw = SettingsManager.instance().get_str("tm.panel.order", "")
+        order: list[str] = []
+        try:
+            loaded = json.loads(raw) if raw else []
+            if isinstance(loaded, list):
+                order = [str(k) for k in loaded if str(k) in known]
+        except (TypeError, ValueError):
+            order = []
+        for key in PANEL_KEYS:
+            if key in known and key not in order:
+                order.append(key)
+        for key in known:
+            if key not in order:
+                order.append(key)
+        return order
+
+    def _save_panel_order(self, order: list[str]) -> None:
+        SettingsManager.instance().set("tm.panel.order", json.dumps(order))
+
+    def panel_zone(self, key: str) -> str:
+        zones = self._panel_zones()
+        zone = zones.get(key, "right")
+        return zone if zone in ("right", "below") else "right"
+
+    def _panel_zones(self) -> dict:
+        raw = SettingsManager.instance().get_str("tm.panel.zones", "{}")
+        try:
+            data = json.loads(raw) if raw else {}
+        except (TypeError, ValueError):
+            data = {}
+        return data if isinstance(data, dict) else {}
+
+    def _set_panel_zone(self, key: str, zone: str) -> None:
+        zones = self._panel_zones()
+        zones[key] = zone if zone in ("right", "below") else "right"
+        SettingsManager.instance().set("tm.panel.zones", json.dumps(zones))
+
+    def _panels_by_zone(self):
+        sm = SettingsManager.instance()
+        by_key = {key: (title, w, key) for title, w, key in self._right_panels}
+        right, below = [], []
+        for key in self._panel_order():
+            if key not in by_key:
+                continue
+            if not sm.get_bool(f"tm.panel.show.{key}", True):
+                continue
+            item = by_key[key]
+            if self.panel_zone(key) == "below":
+                below.append(item)
+            else:
+                right.append(item)
+        return right, below
+
+    def place_panel(self, key: str, zone: str | None = None, before: str | None = None) -> None:
+        """Przenosi panel: kolejność i/lub strefa (right / below)."""
+        known = {k for _t, _w, k in self._right_panels}
+        if key not in known:
+            return
+        order = self._panel_order()
+        if key in order:
+            order.remove(key)
+        if before and before in order:
+            order.insert(order.index(before), key)
+        elif zone:
+            zones = self._panel_zones()
+            insert_at = 0
+            last = -1
+            target = zone
+            for i, k in enumerate(order):
+                if zones.get(k, "right") == target:
+                    last = i
+            insert_at = last + 1
+            order.insert(insert_at, key)
+        else:
+            order.append(key)
+        self._save_panel_order(order)
+        if zone in ("right", "below"):
+            self._set_panel_zone(key, zone)
+        self.apply_panel_layout()
+
+    def nudge_panel(self, key: str, delta: int) -> None:
+        order = self._panel_order()
+        zone = self.panel_zone(key)
+        group = [k for k in order if self.panel_zone(k) == zone]
+        if key not in group:
+            return
+        i = group.index(key)
+        j = i + int(delta)
+        if j < 0 or j >= len(group):
+            return
+        group[i], group[j] = group[j], group[i]
+        it = iter(group)
+        merged = []
+        for k in order:
+            if self.panel_zone(k) == zone:
+                merged.append(next(it))
+            else:
+                merged.append(k)
+        self._save_panel_order(merged)
+        self.apply_panel_layout()
+
+    def _rebuild_below_panels(self, visible_below) -> None:
+        host = getattr(self, "_below_host", None)
+        if host is None:
+            return
+        layout = host.layout()
+        # Zostaw podpowiedź (pierwszy widget), resztę wypnij.
+        while layout is not None and layout.count() > 1:
+            item = layout.takeAt(layout.count() - 1)
+            widget = item.widget() if item is not None else None
+            if widget is not None and widget is not self._below_hint:
+                widget.setParent(None)
+                widget.deleteLater()
+        self._below_stack = None
+        if not visible_below:
+            self._below_hint.show()
+            host.setMinimumHeight(32)
+            host.setMaximumHeight(40)
+            return
+        self._below_hint.show()
+        host.setMaximumHeight(16777215)
+        host.setMinimumHeight(140)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(False)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        stack = ExpandingSplitter(Qt.Orientation.Vertical)
+        for title, w, key in visible_below:
+            grp = DockableGroup(title, key, self)
+            grp.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+            gl = QVBoxLayout(grp)
+            gl.setContentsMargins(8, 8, 8, 8)
+            gl.setSpacing(6)
+            gl.addWidget(w)
+            stack.addWidget(grp)
+        tail = QWidget()
+        tail.setObjectName("sc_right_tail")
+        tail.setMinimumHeight(0)
+        tail.setMaximumHeight(0)
+        stack.addWidget(tail)
+        preferred = self._right_panel_preferred_height()
+        stack._panel_min = preferred
+        mins = [preferred] * (stack.count() - 1) + [0]
+        setup_splitter(stack, minimums=mins)
+        stack.setCollapsible(stack.count() - 1, True)
+        stack.setHandleWidth(max(8, stack.handleWidth()))
+        scroll.setWidget(stack)
+        layout.addWidget(scroll, 1)
+        self._below_stack = stack
+        init = [preferred] * (stack.count() - 1) + [0]
+        stack.setSizes(init)
+        extra = stack.handleWidth() * max(0, stack.count() - 1)
+        stack.setMinimumHeight(preferred * max(1, len(visible_below)) + extra)
+        stack.splitterMoved.connect(lambda *_a: self._sync_below_stack_size())
+        self._sync_below_stack_size()
+        splitter = getattr(self, "_work_splitter", None)
+        if splitter is not None and splitter.count() == 2:
+            sizes = splitter.sizes()
+            total = sum(sizes) or 400
+            if sizes[1] < 160:
+                splitter.setSizes([max(180, total - 220), 220])
+
+    def _sync_below_stack_size(self) -> None:
+        stack = getattr(self, "_below_stack", None)
+        if stack is None:
+            return
+        host = getattr(self, "_below_host", None)
+        self._sync_right_stack_size_body(stack, host)
+
     def apply_panel_layout(self) -> None:
         """Układa panele po prawej: wszystko naraz (stacked) lub zakładki.
 
@@ -1876,8 +2185,8 @@ class EditorTab(QWidget):
         """
         sm = SettingsManager.instance()
         mode = sm.get_str("tm.panel.layout", "stacked")
-        visible = [(title, w) for title, w, key in self._right_panels
-                   if sm.get_bool(f"tm.panel.show.{key}", True)]
+        visible_right, visible_below = self._panels_by_zone()
+        visible = [(title, w) for title, w, _k in visible_right]
         # Szerokość prawej kolumny PRZED przełączaniem. Nowy kontener wchodzi
         # do splittera z minimalną szerokością (180 px), więc bez tego panel
         # po każdej zmianie układu zwężał się do minimum i wyglądał na pusty.
@@ -1913,8 +2222,8 @@ class EditorTab(QWidget):
             # powiększa jeden panel, reszta zjeżdża w dół, a pasek
             # QScrollArea (ten od kolumny) się wydłuża.
             stack = ExpandingSplitter(Qt.Orientation.Vertical)
-            for title, w in visible:
-                grp = QGroupBox(title)
+            for title, w, key in visible_right:
+                grp = DockableGroup(title, key, self)
                 grp.setSizePolicy(QSizePolicy.Policy.Preferred,
                                   QSizePolicy.Policy.Minimum)
                 gl = QVBoxLayout(grp)
@@ -1951,6 +2260,11 @@ class EditorTab(QWidget):
             self._right_stack = stack
             self._fit_right_stack()
         self._right_container = container
+        container.setAcceptDrops(True)
+        viewport = getattr(container, "viewport", lambda: None)()
+        if viewport is not None:
+            viewport.setAcceptDrops(True)
+        container.installEventFilter(self)
         self.main_splitter.insertWidget(self.main_splitter.count(), container)
         # Kontener wchodzi do splittera PO setup_splitter() — musi sam
         # zadbać o minimum i niemożność zwinięcia (inaczej znika do zera).
@@ -1993,6 +2307,8 @@ class EditorTab(QWidget):
             self._sync_right_stack_size()
         for _title, widget in visible:
             widget.show()
+        for _title, widget, _k in visible_below:
+            widget.show()
         if isinstance(container, QTabWidget):
             current = container.currentIndex()
             for page_index in range(container.count()):
@@ -2000,6 +2316,7 @@ class EditorTab(QWidget):
                 if page is not None:
                     page.setVisible(page_index == current)
         self.apply_panel_font()
+        self._rebuild_below_panels(visible_below)
         # Na wszelki wypadek odśwież panele podpowiedzi dla bieżącego
         # segmentu (przenoszenie widжетów nie powinno nic gubić, ale przy
         # przełączaniu układu wartości muszą wrócić na pewno).

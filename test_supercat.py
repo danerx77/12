@@ -4440,6 +4440,23 @@ Dziękujemy za korzystanie z MYSTERY"""
     check("ustawienia: checkboxy widoczności paneli",
           len(getattr(w.settings_tab, "_panel_show_checks", {})) == 7,
           str(list(getattr(w.settings_tab, "_panel_show_checks", {}))))
+    check("ustawienia: miejsce panelu (prawa / pod tłumaczeniem)",
+          hasattr(w.settings_tab, "_panel_zone_combos")
+          and "matches" in w.settings_tab._panel_zone_combos)
+
+    _zones_prev = smgr2.get_str("tm.panel.zones", "{}")
+    _order_prev = smgr2.get_str("tm.panel.order", "")
+    w.editor_tab.place_panel("matches", zone="below")
+    check("panel: TM można umieścić pod tłumaczeniem",
+          w.editor_tab.panel_zone("matches") == "below"
+          and getattr(w.editor_tab, "_below_stack", None) is not None)
+    w.editor_tab.place_panel("matches", zone="right")
+    check("panel: TM wraca do prawej kolumny",
+          w.editor_tab.panel_zone("matches") == "right")
+    smgr2.set("tm.panel.zones", _zones_prev)
+    if _order_prev:
+        smgr2.set("tm.panel.order", _order_prev)
+    w.editor_tab.apply_panel_layout()
 
     # ikona aplikacji (.ico do EXE)
     from supercat.app import _app_icon_path

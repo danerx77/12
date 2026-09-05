@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QColorDialog, QComboBox, QFormLayout, QGridLayout,
     QGroupBox, QHBoxLayout,
     QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
-    QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSpinBox, QTableWidget,
+    QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSpinBox, QTableWidget, QToolButton,
     QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -236,6 +236,56 @@ class SettingsTab(QTabWidget):
             show_row.addWidget(self._panel_show_checks[key])
         show_row.addStretch(1)
         rb_l.addLayout(show_row)
+        place_hint = QLabel(
+            "Kolejność i miejsce: ↑↓ albo chwyć tytuł panelu w edytorze "
+            "i upuść w prawej kolumnie albo pod tłumaczeniem.")
+        place_hint.setWordWrap(True)
+        place_hint.setStyleSheet("color: gray; font-size: 11px;")
+        rb_l.addWidget(place_hint)
+        self._panel_zone_combos = {}
+        import json as _json
+        try:
+            order = _json.loads(self.settings.get_str("tm.panel.order", "[]") or "[]")
+        except (TypeError, ValueError):
+            order = []
+        keys = [k for k in order if k in self._panel_show_checks]
+        for k in ("matches", "sentences", "terms", "conc", "mt", "lang", "notes"):
+            if k not in keys:
+                keys.append(k)
+        try:
+            zones = _json.loads(self.settings.get_str("tm.panel.zones", "{}") or "{}")
+        except (TypeError, ValueError):
+            zones = {}
+        if not isinstance(zones, dict):
+            zones = {}
+        self._panel_place_box = QVBoxLayout()
+        self._panel_place_box.setSpacing(2)
+        for key in keys:
+            row = QHBoxLayout()
+            name = QLabel(self._panel_show_checks[key].text())
+            name.setMinimumWidth(140)
+            combo = QComboBox()
+            combo.addItem("Prawa kolumna", "right")
+            combo.addItem("Pod tłumaczeniem", "below")
+            combo.setCurrentIndex(1 if zones.get(key) == "below" else 0)
+            combo.currentIndexChanged.connect(
+                lambda _i, k=key, c=combo: self._on_panel_zone(k, c.currentData()))
+            self._panel_zone_combos[key] = combo
+            up = QToolButton()
+            up.setText("↑")
+            up.setToolTip("Wyżej")
+            up.clicked.connect(lambda _=False, k=key: self._nudge_panel_setting(k, -1))
+            down = QToolButton()
+            down.setText("↓")
+            down.setToolTip("Niżej")
+            down.clicked.connect(lambda _=False, k=key: self._nudge_panel_setting(k, 1))
+            row.addWidget(name)
+            row.addWidget(combo)
+            row.addWidget(up)
+            row.addWidget(down)
+            row.addStretch(1)
+            self._panel_place_box.addLayout(row)
+        rb_l.addLayout(self._panel_place_box)
         layout.addWidget(right_box)
 
         layout.addStretch(1)
@@ -689,6 +739,46 @@ class SettingsTab(QTabWidget):
                 self.ui_font_size.blockSignals(True)
                 self.ui_font_size.setValue(self.settings.get_int("ui.font.size", 0))
                 self.ui_font_size.blockSignals(False)
+
+    def _on_panel_zone(self, key: str, zone) -> None:
+        import json as _json
+        if zone not in ("right", "below"):
+            return
+        try:
+            zones = _json.loads(self.settings.get_str("tm.panel.zones", "{}") or "{}")
+        except (TypeError, ValueError):
+            zones = {}
+        if not isinstance(zones, dict):
+            zones = {}
+        zones[key] = zone
+        self.settings.set("tm.panel.zones", _json.dumps(zones))
+        self._apply_panel_layout()
+
+    def _nudge_panel_setting(self, key: str, delta: int) -> None:
+        editor = getattr(self.app, "editor_tab", None)
+        if editor is not None and hasattr(editor, "nudge_panel"):
+            editor.nudge_panel(key, delta)
+            return
+        import json as _json
+        try:
+            order = _json.loads(self.settings.get_str("tm.panel.order", "[]") or "[]")
+        except (TypeError, ValueError):
+            order = []
+        if not isinstance(order, list):
+            order = []
+        keys = [str(k) for k in order]
+        for k in ("matches", "sentences", "terms", "conc", "mt", "lang", "notes"):
+            if k not in keys:
+                keys.append(k)
+        if key not in keys:
+            return
+        i = keys.index(key)
+        j = i + int(delta)
+        if j < 0 or j >= len(keys):
+            return
+        keys[i], keys[j] = keys[j], keys[i]
+        self.settings.set("tm.panel.order", _json.dumps(keys))
+        self._apply_panel_layout()
 
     def _apply_panel_layout(self) -> None:
         editor = getattr(self.app, "editor_tab", None)
