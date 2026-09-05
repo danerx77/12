@@ -201,6 +201,19 @@ class Colors:
         return "#d8b4fe" if self.dark else "#6a1b9a"
 
 
+def style_splitter_handle(handle) -> None:
+    """Widoczny uchwyt splittera (tylko uchwyt — bez efektu na dzieci)."""
+    if handle is None:
+        return
+    handle.setStyleSheet(
+        "QSplitterHandle { background: #46536b; }"
+        "QSplitterHandle:horizontal { border-left: 1px solid #2b3547;"
+        " border-right: 1px solid #2b3547; }"
+        "QSplitterHandle:vertical { border-top: 1px solid #2b3547;"
+        " border-bottom: 1px solid #2b3547; }"
+    )
+
+
 def setup_splitter(splitter, minimums=None, collapsible: bool = False) -> None:
     """Ustawia splitter tak, żeby paneli nie dało się zgubić.
 
@@ -213,7 +226,14 @@ def setup_splitter(splitter, minimums=None, collapsible: bool = False) -> None:
     * szerszy uchwyt (6 px) — łatwiej go złapać myszą.
     """
     splitter.setChildrenCollapsible(collapsible)
-    splitter.setHandleWidth(6)
+    splitter.setHandleWidth(8)
+    # Uchwyt MUSI być widoczny — w motywie ciemnym zlewał się z tłem i
+    # wyglądało, że kolumn „nie da się rozciągać”. Uwaga: styl NADAJEMY
+    # samemu uchwytowi, a NIE splitterowi — stylesheet na splitterze
+    # włącza tryb arkusza dla wszystkich dzieci i motywowy
+    # „QWidget { font-size: 13px }” przegrywał z jawną setFont().
+    for i in range(splitter.count() - 1):
+        style_splitter_handle(splitter.handle(i))
     horizontal = splitter.orientation() == Qt.Orientation.Horizontal
     for index in range(splitter.count()):
         splitter.setCollapsible(index, collapsible)

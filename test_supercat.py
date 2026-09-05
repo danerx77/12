@@ -4464,6 +4464,44 @@ Dziękujemy za korzystanie z MYSTERY"""
     check("kolumny: szerokości wracają po odtworzeniu",
           abs(_sz[0] - 260) <= 5, str(_sz))
 
+    # --- zakładki pionowe + przełączanie układu bez utraty wartości ---
+    print("\n24l. Zakładki pionowo, przełączanie układu, widoczne uchwyty")
+    from PyQt6.QtWidgets import QTabWidget as _QTW2
+    w.editor_tab.terms_list.clear()
+    w.editor_tab.terms_list.addItem("TRWAŁA_WARTOŚĆ")
+    smgr2.set("tm.panel.layout", "tabs")
+    w.editor_tab.apply_panel_layout()
+    app.processEvents()
+    _c2 = w.editor_tab._right_container
+    check("zakładki: pionowe (po lewej), nie w rzędzie",
+          _c2.tabPosition() == _QTW2.TabPosition.West,
+          str(_c2.tabPosition()))
+    smgr2.set("tm.panel.layout", "stacked")
+    w.editor_tab.apply_panel_layout()
+    check("przełączenie: uruchamia odświeżenie podpowiedzi (szukanie TM)",
+          "Szukanie" in w.editor_tab.matches_info.text(),
+          w.editor_tab.matches_info.text())
+    app.processEvents()
+    check("przełączenie: wartości widżetów pozostają",
+          w.editor_tab.terms_list.count() == 1
+          and w.editor_tab.terms_list.item(0).text() == "TRWAŁA_WARTOŚĆ",
+          str([w.editor_tab.terms_list.item(i).text()
+               for i in range(w.editor_tab.terms_list.count())]))
+    _inner2 = w.editor_tab._right_container.widget()
+    _boxes2 = [x for x in _inner2.children() if x.__class__.__name__ == "QGroupBox"]
+    check("stacked: każdy panel ma sensowną wysokość (nie 39 px)",
+          len(_boxes2) == 7 and all(b.geometry().height() > 50 for b in _boxes2),
+          str([b.geometry().height() for b in _boxes2]))
+    _sz_after = list(w.editor_tab.main_splitter.sizes())
+    check("przełączenie: szerokość prawej kolumny nie znika",
+          _sz_after[2] >= 180, str(_sz_after))
+    _h0 = w.editor_tab.main_splitter.handle(0)
+    check("uchwyty kolumn są widoczne (styl na uchwycie)",
+          bool(_h0.styleSheet()), repr(_h0.styleSheet()[:40]))
+    smgr2.set("tm.panel.layout", "stacked")
+    w.editor_tab.apply_panel_layout()
+    app.processEvents()
+
     # ---------------------------- Nawigacja klawiszami
     print("\n24b. Strzałki i zaznaczanie w siatce")
     from PyQt6.QtTest import QTest as _QTest

@@ -32,7 +32,7 @@ Jedno okno, siedem zakładek (jak w Supervertaler Workbench):
 | Zakładka | Zawartość |
 |---|---|
 | 🤖 **AI** | dziennik pracy modelu, podgląd polecenia, wytyczne, test tłumaczenia |
-| 📝 **Edytor** | lista plików **z licznikiem postępu na bieżąco** (`plik.txt (91/1000 • 9%)`, ✅ przy ukończonych) **+ własne znaczniki plików** (✓ sprawdzone / ⚠️ uwaga / ✗ problem, klik prawym) • siatka segmentów • edytor źródło/cel • **panele po prawej: wybór układu** (wszystko naraz / zakładki) **+ wybór, które panele się pokazują** **+ regulacja czcionki** • **szerokości kolumn zapamiętywane** między sesjami |
+| 📝 **Edytor** | lista plików **z licznikiem postępu na bieżąco** (`plik.txt (91/1000 • 9%)`, ✅ przy ukończonych) **+ własne znaczniki plików** (✓ sprawdzone / ⚠️ uwaga / ✗ problem, klik prawym) • siatka segmentów • edytor źródło/cel • **panele po prawej: wybór układu** (wszystko naraz / **zakładki pionowe, po lewej**) **+ wybór, które panele się pokazują** **+ regulacja czcionki** • **szerokości kolumn zapamiętywane** i **widoczne uchwyty** do przeciągania |
 | 💾 **Pamięć TM** | **Lista pamięci** (baza projektu, pliki TMX z folderu `tm/` oraz pamięci zaimportowane z innych lokalizacji) oraz **Przeglądaj i edytuj** – edycja wpisów dwuklikiem bezpośrednio w tabeli, import/eksport TMX |
 | 🏷️ **Glosariusz** | termbaza projektu, import/eksport CSV |
 | 📖 **Słowniki** | słowniki Hunspell/txt, sprawdzanie pisowni |

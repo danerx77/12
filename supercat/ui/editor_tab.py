@@ -718,7 +718,6 @@ class EditorTab(QWidget):
         self.matches_list.setWordWrap(True)
         self.matches_list.setTextElideMode(Qt.TextElideMode.ElideNone)
         self.matches_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.matches_list.setFixedHeight(190)
         self.matches_list.itemDoubleClicked.connect(self._insert_match)
         matches_box = QWidget()
         mb_layout = QVBoxLayout(matches_box)
@@ -736,7 +735,6 @@ class EditorTab(QWidget):
         self.sentence_list.setWordWrap(True)
         self.sentence_list.setTextElideMode(Qt.TextElideMode.ElideNone)
         self.sentence_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.sentence_list.setFixedHeight(190)
         self.sentence_list.itemDoubleClicked.connect(self._insert_sentence_match)
         sentence_box = QWidget()
         sb_layout = QVBoxLayout(sentence_box)
@@ -768,7 +766,6 @@ class EditorTab(QWidget):
         _right_panel("🔗 Dopasowanie zdań", sentence_box, "sentences")
 
         self.terms_list = QListWidget()
-        self.terms_list.setFixedHeight(110)
         self.terms_list.itemDoubleClicked.connect(self._insert_term)
         terms_box = QWidget()
         tb_layout = QVBoxLayout(terms_box)
@@ -781,7 +778,6 @@ class EditorTab(QWidget):
         _right_panel("🏷️ Terminy", terms_box, "terms")
 
         self.concordance_list = QListWidget()
-        self.concordance_list.setFixedHeight(110)
         conc_box = QWidget()
         cb_layout = QVBoxLayout(conc_box)
         cb_layout.setContentsMargins(4, 4, 4, 4)
@@ -798,7 +794,6 @@ class EditorTab(QWidget):
         _right_panel("🔍 Konkordancja", conc_box, "conc")
 
         self.mt_view = QPlainTextEdit()
-        self.mt_view.setFixedHeight(110)
         self.mt_view.setReadOnly(True)
         mt_box = QWidget()
         mt_layout = QVBoxLayout(mt_box)
@@ -821,7 +816,6 @@ class EditorTab(QWidget):
 
         # --- panel kontroli języka (tylko tłumaczenie) -------------------
         self.lang_list = QListWidget()
-        self.lang_list.setFixedHeight(100)
         self.lang_list.setWordWrap(True)
         self.lang_list.itemDoubleClicked.connect(self._apply_lang_suggestion)
         lang_box = QWidget()
@@ -864,7 +858,6 @@ class EditorTab(QWidget):
         _right_panel("🔤 Język", lang_box, "lang")
 
         self.notes_edit = QPlainTextEdit()
-        self.notes_edit.setFixedHeight(100)
         self.notes_edit.setPlaceholderText("Notatki do segmentu…")
         self.notes_edit.textChanged.connect(self._on_notes_changed)
         _right_panel("📝 Notatki", self.notes_edit, "notes")
@@ -1122,6 +1115,10 @@ class EditorTab(QWidget):
             old.deleteLater()
         if mode == "tabs":
             container = QTabWidget()
+            # zakładki PO LEWEJ (pionowo) — w jednym rzędzie (North)
+            # 7 kart się nie mieści i się przycina; pionowo są „3 i poniżej 3”
+            container.setTabPosition(QTabWidget.TabPosition.West)
+            container.tabBar().setExpanding(False)
             for title, w in visible:
                 container.addTab(w, title)
         else:
@@ -1137,8 +1134,7 @@ class EditorTab(QWidget):
                 gl = QVBoxLayout(grp)
                 gl.setContentsMargins(6, 4, 6, 6)
                 gl.addWidget(w)
-                il.addWidget(grp)
-            il.addStretch(1)
+                il.addWidget(grp, 1)          # równe, rozciągalne podziały
             container.setWidget(inner)
         self._right_container = container
         self.main_splitter.insertWidget(self.main_splitter.count(), container)
@@ -1148,7 +1144,17 @@ class EditorTab(QWidget):
         self.main_splitter.setCollapsible(idx, False)
         container.setMinimumWidth(180)
         self.main_splitter.setStretchFactor(idx, 2)
+        from ..ui.theme import style_splitter_handle
+        style_splitter_handle(self.main_splitter.handle(idx - 1))
+        # Rozmiary kolumn po przełączeniu układu — bez tego nowy kontener
+        # startuje z zerem i panele „przestają pokazywać wartości”.
+        self._restore_split_sizes()
         self.apply_panel_font()
+        # Na wszelki wypadek odśwież panele podpowiedzi dla bieżącego
+        # segmentu (przenoszenie widжетów nie powinno nic gubić, ale przy
+        # przełączaniu układu wartości muszą wrócić na pewno).
+        if self.current_index >= 0 and len(self.segments) > self.current_index:
+            self.load_segment(self.current_index)
 
     def apply_panel_font(self) -> None:
         """Wielkość czcionki paneli po prawej (TM / zdania / terminy / konkordancja).
