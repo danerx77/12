@@ -630,21 +630,28 @@ class ExpandingHandle(QSplitterHandle):
             super().mouseMoveEvent(event)
             return
         dy = int(event.globalPosition().y() - self._drag_y)
-        index = 0
-        for i in range(max(0, splitter.count() - 1)):
+        # W QSplitter handle(i) siedzi NAD widgetem i, czyli POD panelem i-1.
+        # Uchwyt pod TM (pierwszy widoczny) ma i=1 → powiększa TM (0),
+        # nie panel poniżej.
+        handle_index = -1
+        for i in range(splitter.count()):
             if splitter.handle(i) is self:
-                index = i
+                handle_index = i
                 break
+        if handle_index < 0:
+            return
+        target = handle_index - 1 if handle_index > 0 else 0
         sizes = list(self._drag_sizes)
-        if index >= len(sizes):
+        if target < 0 or target >= len(sizes):
+            return
+        widget = splitter.widget(target)
+        if widget is not None and widget.objectName() == "sc_right_tail":
             return
         minimum = splitter._panel_min
-        # Uchwyt i leży POD panelem i. Ciągnięcie w dół powiększa TEN panel;
-        # panele niżej zostają i zjeżdżają (suma rośnie → pasek kolumny dłuższy).
-        sizes[index] = max(minimum, self._drag_sizes[index] + dy)
+        sizes[target] = max(minimum, self._drag_sizes[target] + dy)
         for i in range(len(sizes)):
-            widget = splitter.widget(i)
-            if widget is not None and widget.objectName() == "sc_right_tail":
+            child = splitter.widget(i)
+            if child is not None and child.objectName() == "sc_right_tail":
                 sizes[i] = 0
         splitter.apply_panel_sizes(sizes)
 
@@ -1929,10 +1936,14 @@ class EditorTab(QWidget):
             mins = [preferred] * (stack.count() - 1) + [0]
             setup_splitter(stack, minimums=mins)
             stack.setCollapsible(stack.count() - 1, True)
-            for handle_index in range(stack.count() - 1):
-                stack.handle(handle_index).setToolTip(
-                    "Przeciągnij w dół, żeby powiększyć panel — "
-                    "reszta zjedzie niżej (pasek kolumny się wydłuży)")
+            stack.setHandleWidth(max(8, stack.handleWidth()))
+            for handle_index in range(1, stack.count()):
+                handle = stack.handle(handle_index)
+                if handle is None:
+                    continue
+                handle.setToolTip(
+                    "Przeciągnij w dół, żeby powiększyć panel NAD kreską "
+                    "(TM — kreska pod TM). Reszta zjedzie niżej.")
             container.setWidget(stack)
             container.installEventFilter(self)
             if container.viewport() is not None:
