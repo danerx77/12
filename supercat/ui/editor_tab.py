@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QApplication, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
     QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit,
     QGroupBox, QProgressBar, QScrollArea,
-    QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QToolButton, QVBoxLayout,
+    QPushButton, QSizePolicy, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QToolButton, QVBoxLayout,
     QWidget,
 )
 
@@ -888,14 +888,20 @@ class EditorTab(QWidget):
         self.matches_list.setWordWrap(True)
         self.matches_list.setTextElideMode(Qt.TextElideMode.ElideNone)
         self.matches_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.matches_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.matches_list.setMinimumHeight(72)
         self.matches_list.itemDoubleClicked.connect(self._insert_match)
         matches_box = QWidget()
         mb_layout = QVBoxLayout(matches_box)
         mb_layout.setContentsMargins(4, 4, 4, 4)
         self.matches_info = QLabel("Dopasowania z pamięci tłumaczeń")
+        self.matches_info.setWordWrap(True)
         mb_layout.addWidget(self.matches_info)
-        mb_layout.addWidget(self.matches_list)
-        insert_btn = QPushButton("⤵ Wstaw zaznaczone dopasowanie (Ctrl+Spacja)")
+        mb_layout.addWidget(self.matches_list, 1)
+        insert_btn = QPushButton("⤵ Wstaw zaznaczone dopasowanie")
+        from ..core import shortcuts as _sc_ins
+        insert_btn.setToolTip(_sc_ins.with_shortcut("insert_match", "Wstaw zaznaczone dopasowanie"))
+        insert_btn.setMinimumHeight(28)
         insert_btn.clicked.connect(self._insert_selected_match)
         mb_layout.addWidget(insert_btn)
         _right_panel("💡 Dopasowania TM", matches_box, "matches")
@@ -905,6 +911,8 @@ class EditorTab(QWidget):
         self.sentence_list.setWordWrap(True)
         self.sentence_list.setTextElideMode(Qt.TextElideMode.ElideNone)
         self.sentence_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.sentence_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.sentence_list.setMinimumHeight(72)
         self.sentence_list.itemDoubleClicked.connect(self._insert_sentence_match)
         sentence_box = QWidget()
         sb_layout = QVBoxLayout(sentence_box)
@@ -921,9 +929,11 @@ class EditorTab(QWidget):
         sb_layout.addWidget(self.sentence_toggle)
 
         self.sentence_info = QLabel("Fragmenty zdań znalezione w TM")
+        self.sentence_info.setWordWrap(True)
         sb_layout.addWidget(self.sentence_info)
-        sb_layout.addWidget(self.sentence_list)
+        sb_layout.addWidget(self.sentence_list, 1)
         sent_btn = QPushButton("⤵ Wstaw złożone tłumaczenie")
+        sent_btn.setMinimumHeight(28)
         sent_btn.clicked.connect(self._insert_selected_sentence_match)
         sb_layout.addWidget(sent_btn)
         hint = QLabel(
@@ -936,18 +946,30 @@ class EditorTab(QWidget):
         _right_panel("🔗 Dopasowanie zdań", sentence_box, "sentences")
 
         self.terms_list = QListWidget()
+        self.terms_list.setWordWrap(True)
+        self.terms_list.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self.terms_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.terms_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.terms_list.setMinimumHeight(64)
         self.terms_list.itemDoubleClicked.connect(self._insert_term)
         terms_box = QWidget()
         tb_layout = QVBoxLayout(terms_box)
         tb_layout.setContentsMargins(4, 4, 4, 4)
-        tb_layout.addWidget(QLabel("Terminy znalezione w segmencie (2× klik = wstaw)"))
-        tb_layout.addWidget(self.terms_list)
+        terms_hint = QLabel("Terminy znalezione w segmencie (2× klik = wstaw)")
+        terms_hint.setWordWrap(True)
+        tb_layout.addWidget(terms_hint)
+        tb_layout.addWidget(self.terms_list, 1)
         add_term_btn = QPushButton("➕ Dodaj zaznaczenie do glosariusza")
         add_term_btn.clicked.connect(self._add_selection_to_glossary)
         tb_layout.addWidget(add_term_btn)
         _right_panel("🏷️ Terminy", terms_box, "terms")
 
         self.concordance_list = QListWidget()
+        self.concordance_list.setWordWrap(True)
+        self.concordance_list.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self.concordance_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.concordance_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.concordance_list.setMinimumHeight(64)
         conc_box = QWidget()
         cb_layout = QVBoxLayout(conc_box)
         cb_layout.setContentsMargins(4, 4, 4, 4)
@@ -965,11 +987,15 @@ class EditorTab(QWidget):
 
         self.mt_view = QPlainTextEdit()
         self.mt_view.setReadOnly(True)
+        self.mt_view.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.mt_view.setMinimumHeight(64)
         mt_box = QWidget()
         mt_layout = QVBoxLayout(mt_box)
         mt_layout.setContentsMargins(4, 4, 4, 4)
-        mt_layout.addWidget(QLabel("Propozycja tłumaczenia maszynowego"))
-        mt_layout.addWidget(self.mt_view)
+        mt_caption = QLabel("Propozycja tłumaczenia maszynowego")
+        mt_caption.setWordWrap(True)
+        mt_layout.addWidget(mt_caption)
+        mt_layout.addWidget(self.mt_view, 1)
         mt_row = QHBoxLayout()
         gen_btn = QPushButton("🤖 Generuj")
         gen_btn.clicked.connect(self.machine_translate_preview)
@@ -988,6 +1014,10 @@ class EditorTab(QWidget):
         # --- panel kontroli języka (tylko tłumaczenie) -------------------
         self.lang_list = QListWidget()
         self.lang_list.setWordWrap(True)
+        self.lang_list.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self.lang_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.lang_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.lang_list.setMinimumHeight(64)
         self.lang_list.itemDoubleClicked.connect(self._apply_lang_suggestion)
         lang_box = QWidget()
         lang_layout = QVBoxLayout(lang_box)
@@ -995,7 +1025,7 @@ class EditorTab(QWidget):
         self.lang_status = QLabel("Kontrola języka tłumaczenia")
         self.lang_status.setWordWrap(True)
         lang_layout.addWidget(self.lang_status)
-        lang_layout.addWidget(self.lang_list)
+        lang_layout.addWidget(self.lang_list, 1)
 
         lang_opts = QHBoxLayout()
         self.lang_auto = QCheckBox("Sprawdzaj na bieżąco")
@@ -1030,6 +1060,7 @@ class EditorTab(QWidget):
         _right_panel("🔤 Język", lang_box, "lang")
 
         self.notes_edit = QPlainTextEdit()
+        self.notes_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.notes_edit.setPlaceholderText("Notatki do segmentu…")
         self.notes_edit.textChanged.connect(self._on_notes_changed)
         _right_panel("📝 Notatki", self.notes_edit, "notes")
@@ -1042,7 +1073,7 @@ class EditorTab(QWidget):
         splitter.setStretchFactor(2, 2)
         # Bez tego panel „Pliki projektu” albo prawa kolumna dają się
         # przeciągnąć do zera i znikają bez możliwości przywrócenia.
-        setup_splitter(splitter, minimums=[150, 320, 180])
+        setup_splitter(splitter, minimums=[150, 320, self._right_column_min_width()])
         self.main_splitter = splitter
         self.apply_panel_layout()
         # Szerokości kolumn: zapamiętane z poprzedniej sesji albo domyślne.
@@ -1459,7 +1490,10 @@ class EditorTab(QWidget):
         stack = getattr(self, "_right_stack", None)
         if stack is None or not stack.count():
             return
-        per = max(60, stack.height() // stack.count())
+        self._fit_right_stack()
+        preferred = self._right_panel_preferred_height()
+        live = stack.height() // stack.count() if stack.height() else 0
+        per = max(preferred, live)
         stack.setSizes([per] * stack.count())
         self._save_panel_heights()
 
@@ -1479,6 +1513,74 @@ class EditorTab(QWidget):
         center = data.get("center")
         if isinstance(center, list) and len(center) == self.center_splitter.count():
             self.center_splitter.setSizes([max(0, int(v)) for v in center])
+
+
+    def _panel_em_px(self) -> int:
+        """Wysokość wiersza czcionki prawego panelu (px)."""
+        settings = SettingsManager.instance()
+        points = settings.get_int("tm.panel.font.size", 0)
+        if points <= 0:
+            points = settings.get_int("ui.font.size", 0)
+        if points <= 0:
+            app = QApplication.instance()
+            if app is not None:
+                font = app.font()
+                points = font.pointSize()
+                if points <= 0:
+                    pixels = font.pixelSize()
+                    if pixels > 0:
+                        return max(16, pixels)
+        if points <= 0:
+            points = 10
+        return max(16, int(round(points * 4 / 3)))
+
+    def _right_panel_min_height(self) -> int:
+        """Najmniejsza wysokość panelu, przy której tekst się mieści."""
+        em = self._panel_em_px()
+        return max(96, em * 5 + 28)
+
+    def _right_panel_preferred_height(self) -> int:
+        """Wygodna wysokość panelu (tytuł + treść + przycisk)."""
+        em = self._panel_em_px()
+        return max(168, em * 9 + 48)
+
+    def _right_column_min_width(self) -> int:
+        """Szerokość prawej kolumny, w której etykiety się zawijają, a nie obcinają."""
+        em = self._panel_em_px()
+        return max(240, em * 14)
+
+    def _fit_right_stack(self) -> None:
+        """Dopasowuje minima stacked-paneli do czcionki, żeby pojawił się scroll."""
+        stack = getattr(self, "_right_stack", None)
+        if stack is None or not stack.count():
+            return
+        compact = self._right_panel_min_height()
+        preferred = self._right_panel_preferred_height()
+        em = self._panel_em_px()
+        for widget in (
+            getattr(self, "matches_list", None),
+            getattr(self, "sentence_list", None),
+            getattr(self, "terms_list", None),
+            getattr(self, "concordance_list", None),
+            getattr(self, "lang_list", None),
+            getattr(self, "mt_view", None),
+            getattr(self, "notes_edit", None),
+        ):
+            if widget is not None:
+                widget.setMinimumHeight(max(48, em * 4))
+        visible_keys = [
+            key for _title, _w, key in self._right_panels
+            if SettingsManager.instance().get_bool(f"tm.panel.show.{key}", True)
+        ]
+        for index in range(stack.count()):
+            child = stack.widget(index)
+            if child is None:
+                continue
+            child.setMinimumHeight(compact)
+            key = visible_keys[index] if index < len(visible_keys) else ""
+            stack.setStretchFactor(index, 3 if key in ("matches", "sentences") else 1)
+        extra = stack.handleWidth() * max(0, stack.count() - 1)
+        stack.setMinimumHeight(preferred * stack.count() + extra)
 
     def apply_panel_layout(self) -> None:
         """Układa panele po prawej: wszystko naraz (stacked) lub zakładki.
@@ -1521,33 +1623,42 @@ class EditorTab(QWidget):
             container = QScrollArea()
             container.setWidgetResizable(True)
             container.setFrameShape(QFrame.Shape.NoFrame)
+            container.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            container.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             # Pionowy splitter zamiast zwykłego układu: wysokość każdego
             # panelu można przeciągnąć myszą. Dawniej panele dzieliły się
             # po równo i nie było czego złapać — nie dało się powiększyć
             # „Dopasowań TM” kosztem pozostałych.
+            # Minimum musi być liczone od czcionki: stałe 60 px ściskało
+            # 7 paneli w oknie i teksty nachodziły na siebie. Sumaryczna
+            # wysokość preferowana jest większa niż okno, więc pojawia
+            # się pasek przewijania zamiast zgniatania.
             stack = QSplitter(Qt.Orientation.Vertical)
             for title, w in visible:
                 grp = QGroupBox(title)
+                grp.setSizePolicy(QSizePolicy.Policy.Preferred,
+                                  QSizePolicy.Policy.Expanding)
                 gl = QVBoxLayout(grp)
-                gl.setContentsMargins(6, 4, 6, 6)
+                gl.setContentsMargins(8, 8, 8, 8)
+                gl.setSpacing(6)
                 gl.addWidget(w)
                 stack.addWidget(grp)
-            # 60 px minimum + 8 px uchwyt: panelu nie da się zgubić,
-            # a uchwyt łatwo trafić myszą (styl jak w kolumnach edytora).
-            setup_splitter(stack, minimums=[60] * stack.count())
+            compact = self._right_panel_min_height()
+            setup_splitter(stack, minimums=[compact] * stack.count())
             for handle_index in range(stack.count() - 1):
                 stack.handle(handle_index).setToolTip(
                     "Przeciągnij, żeby zmienić wysokość panelu — "
                     "ustawienie jest zapamiętywane")
             container.setWidget(stack)
             self._right_stack = stack
+            self._fit_right_stack()
         self._right_container = container
         self.main_splitter.insertWidget(self.main_splitter.count(), container)
         # Kontener wchodzi do splittera PO setup_splitter() — musi sam
         # zadbać o minimum i niemożność zwinięcia (inaczej znika do zera).
         idx = self.main_splitter.count() - 1
         self.main_splitter.setCollapsible(idx, False)
-        container.setMinimumWidth(180)
+        container.setMinimumWidth(self._right_column_min_width())
         self.main_splitter.setStretchFactor(idx, 2)
         from ..ui.theme import style_splitter_handle
         style_splitter_handle(self.main_splitter.handle(idx - 1))
@@ -1615,6 +1726,9 @@ class EditorTab(QWidget):
         for title, root, key in self._right_panels:
             own = settings.get_int(f"tm.panel.font.{key}", 0)
             self._apply_font_to_panel(root, own if own > 0 else size)
+        # Po zmianie czcionki panele muszą dostać nowe minima — inaczej
+        # większy tekst znowu wychodzi poza ramkę.
+        self._fit_right_stack()
 
     def _apply_font_to_panel(self, root: QWidget, size: int) -> None:
         """Ustawia czcionkę w jednym panelu (i wszystkim, co w nim siedzi)."""

@@ -4494,6 +4494,18 @@ Dziękujemy za korzystanie z MYSTERY"""
     check("stacked: każdy panel ma sensowną wysokość (nie 39 px)",
           len(_boxes2) == 7 and all(b.geometry().height() > 50 for b in _boxes2),
           str([b.geometry().height() for b in _boxes2]))
+    check("stacked: minima od czcionki, suma wyższa niż okno (scroll zamiast zgniatania)",
+          all(b.minimumHeight() >= 90 for b in _boxes2)
+          and w.editor_tab._right_stack.minimumHeight()
+          >= 7 * w.editor_tab._right_panel_preferred_height(),
+          str([b.minimumHeight() for b in _boxes2])
+          + f" stack={w.editor_tab._right_stack.minimumHeight()}")
+    check("stacked: etykiety paneli się zawijają",
+          w.editor_tab.matches_info.wordWrap()
+          and w.editor_tab.sentence_info.wordWrap())
+    check("stacked: prawa kolumna szersza niż 180 px (przyciski się mieszczą)",
+          w.editor_tab._right_container.minimumWidth() >= 240,
+          str(w.editor_tab._right_container.minimumWidth()))
     _sz_after = list(w.editor_tab.main_splitter.sizes())
     check("przełączenie: szerokość prawej kolumny nie znika",
           _sz_after[2] >= 180, str(_sz_after))
@@ -6002,6 +6014,14 @@ Dziękujemy za korzystanie z MYSTERY"""
           and w.editor_tab.matches_info.font().pointSize() == 18,
           f"{w.editor_tab.matches_list.font().pointSize()} / "
           f"{w.editor_tab.matches_info.font().pointSize()}")
+    check("czcionka panelu: minima wysokości rosną razem z tekstem",
+          w.editor_tab._right_stack is not None
+          and w.editor_tab._right_panel_min_height() >= 96
+          and w.editor_tab._right_stack.minimumHeight()
+          >= 7 * w.editor_tab._right_panel_preferred_height(),
+          f"min={w.editor_tab._right_panel_min_height()} "
+          f"pref={w.editor_tab._right_panel_preferred_height()} "
+          f"stack={w.editor_tab._right_stack.minimumHeight() if w.editor_tab._right_stack else 0}")
     check("czcionka panelu: podpowiedź z własnym arkuszem też rośnie",
           bool(_hints28) and "font-size: 2" in _hints28[-1].styleSheet(),
           _hints28[-1].styleSheet() if _hints28 else "brak")
