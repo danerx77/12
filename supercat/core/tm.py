@@ -829,6 +829,46 @@ class TranslationMemory:
             # cache uzupełni się przyrostowo przy następnym wyszukiwaniu
 
     @staticmethod
+    def adapt_line_case(src_line: str, tgt_line: str) -> str:
+        """Wielkość liter WNIETRZ linii: słowo po słowie.
+
+        Gdy oba wiersze mają tyle samo słów, wzorzec case'u i-tego słowa
+        oryginału przenosimy na i-te słowo tłumaczenia: oryginał małe a TM
+        trzyma CAŁE SŁOWO w środku zdania („No special **ABILITY**.” →
+        „No special **ZDOLNOŚ**” w TM) — podstawiane słowo dostaje małe
+        litery, bo tak jest w oryginale. Inna liczba słów → reguła
+        całościowa (adapt_case_to_source).
+        """
+        if not src_line or not tgt_line:
+            return tgt_line
+        src_w = _TOKEN_RE.findall(src_line)
+        tgt_w = _TOKEN_RE.findall(tgt_line)
+        if len(src_w) and len(src_w) == len(tgt_w):
+            out = tgt_line
+            for s, tl in zip(src_w, tgt_w):
+                ns = [c for c in s if c.isalpha()]
+                nt = [c for c in tl if c.isalpha()]
+                if not ns or not nt:
+                    continue
+                rep = None
+                if all(c.islower() for c in ns) and all(c.isupper() for c in nt):
+                    rep = tl.lower()
+                elif all(c.isupper() for c in ns) and not all(c.isupper() for c in nt):
+                    rep = tl.upper()
+                elif (ns[0].isupper() and all(c.islower() for c in ns[1:])
+                      and not all(c.isupper() for c in nt)
+                      and (nt[0].islower() or (len(nt) > 1 and nt[-1].islower()))):
+                    rep = tl[:1].upper() + tl[1:].lower()
+                elif (ns[0].islower() and nt[0].isupper()
+                      and all(c.islower() for c in nt[1:])):
+                    rep = tl.lower()
+                if rep is not None and rep != tl:
+                    out = re.sub(r"(?<![\w])" + re.escape(tl) + r"(?![\w])",
+                                 rep.replace("\\", "\\\\"), out, count=1)
+            return out
+        return TranslationMemory.adapt_case_to_source(src_line, tgt_line)
+
+    @staticmethod
     def adapt_case_to_source(src_text: str, tgt_text: str) -> str:
         """Dopasowuje WIELKOŚĆ LITER tłumaczenia do oryginału.
 
@@ -979,8 +1019,12 @@ class TranslationMemory:
                 if k >= 0:
                     orig_s = flat_to_orig[k]
                     orig_e = flat_to_orig[k + len(db_flat) - 1] + 1
-                    shown_target = self.adapt_case_to_source(
-                        haystack[orig_s:orig_e], db_target)
+                    span_text = haystack[orig_s:orig_e]
+                    if "\n" not in span_text and "\p" not in span_text \
+                            and "\n" not in db_target and "\p" not in db_target:
+                        shown_target = self.adapt_line_case(span_text, db_target)
+                    else:
+                        shown_target = self.adapt_case_to_source(span_text, db_target)
                 assembled = _replace_flat_span(haystack, flat, flat_to_orig, db_flat, shown_target)
                 coverage = int(round(len(db_flat) * 100 / max(len(flat), 1)))
                 line_matches.append(
@@ -1019,13 +1063,13 @@ class TranslationMemory:
                 seen_sub.add(db_target)
                 coverage = int(round(len(flat) * 100 / max(len(db_flat), 1)))
                 if best_line is not None:
-                    shown = self.adapt_case_to_source(haystack, best_line[1])
+                    shown = self.adapt_line_case(haystack, best_line[1])
                     line_matches.append(
                         SentenceMatch(best_line[0], best_line[1], _wrap(shown), coverage,
                                       line_pairs=pairs, kind="linia z dłuższego wpisu")
                     )
                 else:
-                    shown = self.adapt_case_to_source(haystack, db_target)
+                    shown = self.adapt_line_case(haystack, db_target)
                     line_matches.append(
                         SentenceMatch(db_source, db_target, _wrap(shown), coverage,
                                       line_pairs=pairs, kind="segment w dłuższym wpisie")
@@ -1275,7 +1319,7 @@ class TranslationMemory:
             # się samo tłumaczenie linii, przez co „całość” gubiła resztę tekstu.
             # Wielkość liter dopasowujemy do linii oryginału (TM trzyma np.
             # „ABILITY → ZDOLNOŚ”, a segment ma „ability”).
-            shown_line = self.adapt_case_to_source(seg_line, tgt_line)
+            shown_line = self.adapt_line_case(seg_line, tgt_line)
             assembled = _replace_line_in_segment(segment, seg_line, shown_line)
             coverage = int(round(len(seg_line) * 100 / max(len(segment), 1)))
             # Gdy dopasowaliśmy wpis wielolinijkowy, pokaż też rozbicie

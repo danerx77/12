@@ -4337,6 +4337,71 @@ Dziękujemy za korzystanie z MYSTERY"""
     w.settings_tab.panel_font_size.setValue(0)
     w.editor_tab.apply_panel_font()
 
+    # --- wielkość liter WNIETRZ linii + układ panelu + ikona ---
+    print("\n24j. Case wewnątrz linii, układ panelu (zakładki/stacked), ikona EXE")
+    from supercat.core.tm import TranslationMemory as _TMCase2
+    f2 = _TMCase2.adapt_line_case
+    check("case linii: „No special ZDOLNOŚ.” z TM przy „No special ability.”",
+          f2("No special ability.", "No special ZDOLNOŚ.") == "No special zdolnoś.",
+          repr(f2("No special ability.", "No special ZDOLNOŚ.")))
+    check("case linii: CAŁE SŁOWO w oryginale zostaje wielkie",
+          f2("MYSTERY GIFT System.", "mystery gift system.") == "MYSTERY GIFT System.")
+    check("case linii: pasujące case'y nie są ruszane",
+          f2("No special ability.", "No special zdolność.") == "No special zdolność.")
+
+    # end-to-end: dopasowanie zdań z pełnym wierszem z TM (fragment ~100%)
+    _prev_sm2 = smgr2.get_bool("tm.sentence.matching.enabled", False)
+    smgr2.set("tm.sentence.matching.enabled", True)
+    tmc2_dir = os.path.join(tmp, "tm_case2")
+    os.makedirs(tmc2_dir, exist_ok=True)
+    tmc = TranslationMemory()
+    tmc.init_for_project(tmc2_dir)
+    tmc.add("No special ability.", "No special ZDOLNOŚ.", "en", "pl")
+    hits2 = tmc.find_sentence_matches("No special ability.")
+    whole = [m for m in hits2 if m.coverage == 100]
+    check("zdania: pełna linia z TM dostaje małe litery z oryginału",
+          any("No special zdolnoś." in m.assembled for m in whole),
+          [m.assembled for m in hits2][:3])
+    smgr2.set("tm.sentence.matching.enabled", _prev_sm2)
+
+    # układ panelu: stacked (domyślnie) i tabs, widoczność paneli
+    from PyQt6.QtWidgets import QTabWidget as _QTW, QScrollArea as _QSA
+    _prev_layout = smgr2.get_str("tm.panel.layout", "stacked")
+    smgr2.set("tm.panel.layout", "stacked")
+    w.editor_tab.apply_panel_layout()
+    check("panel: domyślnie wszystko naraz (scroll)",
+          isinstance(w.editor_tab._right_container, _QSA))
+    smgr2.set("tm.panel.layout", "tabs")
+    w.editor_tab.apply_panel_layout()
+    check("panel: zakładki na żądanie",
+          isinstance(w.editor_tab._right_container, _QTW))
+    smgr2.set("tm.panel.show.notes", False)
+    w.editor_tab.apply_panel_layout()
+    tabs_txt = [_QTW.tabText(w.editor_tab._right_container, i)
+                for i in range(w.editor_tab._right_container.count())] if isinstance(w.editor_tab._right_container, _QTW) else []
+    check("panel: ukryte notatki znikają z zakładek",
+          not any("Notatki" in tt for tt in tabs_txt), str(tabs_txt))
+    smgr2.set("tm.panel.show.notes", True)
+    smgr2.set("tm.panel.layout", _prev_layout)
+    w.editor_tab.apply_panel_layout()
+
+    # Ustawienia: combo układu + checkboxy widoczności
+    check("ustawienia: wybór układu panelu",
+          hasattr(w.settings_tab, "panel_layout_combo"))
+    check("ustawienia: checkboxy widoczności paneli",
+          len(getattr(w.settings_tab, "_panel_show_checks", {})) == 7,
+          str(list(getattr(w.settings_tab, "_panel_show_checks", {}))))
+
+    # ikona aplikacji (.ico do EXE)
+    from supercat.app import _app_icon_path
+    check("ikona: plik supercat.ico istnieje w repo",
+          bool(_app_icon_path()) and _app_icon_path().endswith("supercat.ico"),
+          str(_app_icon_path()))
+    from PyQt6.QtGui import QIcon as _QIcon
+    _ip = _app_icon_path()
+    check("ikona: ładuje się jako QIcon (walidacja pliku)",
+          bool(_ip) and not _QIcon(_ip).isNull())
+
     # ---------------------------- Nawigacja klawiszami
     print("\n24b. Strzałki i zaznaczanie w siatce")
     from PyQt6.QtTest import QTest as _QTest

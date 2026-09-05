@@ -39,6 +39,16 @@ DEFAULTS: Dict[str, Any] = {
     #: Wielkość czcionki paneli po prawej (TM / zdania / terminy);
     # 0 = czcionka domyślna aplikacji.
     "tm.panel.font.size": 0,
+    #: Układ paneli po prawej: "stacked" (wszystko naraz) lub "tabs" (zakładki).
+    "tm.panel.layout": "stacked",
+    #: Które panele po prawej w ogóle pokazywać.
+    "tm.panel.show.matches": True,
+    "tm.panel.show.sentences": True,
+    "tm.panel.show.terms": True,
+    "tm.panel.show.conc": True,
+    "tm.panel.show.mt": True,
+    "tm.panel.show.lang": True,
+    "tm.panel.show.notes": True,
     "tm.filter.english": True,
     #: Nie zapisuj do TM wpisów, których tłumaczenie zostało po angielsku.
     "tm.reject.untranslated": False,

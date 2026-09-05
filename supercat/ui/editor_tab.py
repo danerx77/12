@@ -706,24 +706,13 @@ class EditorTab(QWidget):
         self.center_splitter = center
 
         # --- prawy panel: pomoc tłumacza --------------------------------
-        # Wszystko WIDOCZNE NA RAZ (boxy pod spodem, całość przewijalna) —
-        # bez przełączania zakładek: dopasowania TM, zdania, terminy itd.
-        # są pod ręką.
-        right = QScrollArea()
-        right.setWidgetResizable(True)
-        right.setFrameShape(QFrame.Shape.NoFrame)
-        right_inner = QWidget()
-        right_layout = QVBoxLayout(right_inner)
-        right_layout.setContentsMargins(0, 0, 2, 0)
-        right_layout.setSpacing(6)
-        right.setWidget(right_inner)
+        # Boxy budujemy RAZ (stan pozostaje przy przełączaniu układu); sam
+        # kontener (wszystko naraz / zakładki) odświeża apply_panel_layout().
+        # Ustawienia: tm.panel.layout (stacked/tabs) + tm.panel.show.<panel>.
+        self._right_panels: list[tuple[str, QWidget, str]] = []
 
-        def _right_group(title: str, content: QWidget) -> None:
-            grp = QGroupBox(title)
-            gl = QVBoxLayout(grp)
-            gl.setContentsMargins(6, 4, 6, 6)
-            gl.addWidget(content)
-            right_layout.addWidget(grp)
+        def _right_panel(title: str, content: QWidget, key: str) -> None:
+            self._right_panels.append((title, content, key))
 
         self.matches_list = QListWidget()
         self.matches_list.setWordWrap(True)
@@ -740,7 +729,7 @@ class EditorTab(QWidget):
         insert_btn = QPushButton("⤵ Wstaw zaznaczone dopasowanie (Ctrl+Spacja)")
         insert_btn.clicked.connect(self._insert_selected_match)
         mb_layout.addWidget(insert_btn)
-        _right_group("💡 Dopasowania TM", matches_box)
+        _right_panel("💡 Dopasowania TM", matches_box, "matches")
 
         # Dopasowanie zdań (fragmenty) – odpowiednik SentenceMatchingPanel z repo `5`
         self.sentence_list = QListWidget()
@@ -776,7 +765,7 @@ class EditorTab(QWidget):
         hint.setWordWrap(True)
         hint.setStyleSheet("color: gray; font-size: 11px;")
         sb_layout.addWidget(hint)
-        _right_group("🔗 Dopasowanie zdań", sentence_box)
+        _right_panel("🔗 Dopasowanie zdań", sentence_box, "sentences")
 
         self.terms_list = QListWidget()
         self.terms_list.setFixedHeight(110)
@@ -789,7 +778,7 @@ class EditorTab(QWidget):
         add_term_btn = QPushButton("➕ Dodaj zaznaczenie do glosariusza")
         add_term_btn.clicked.connect(self._add_selection_to_glossary)
         tb_layout.addWidget(add_term_btn)
-        _right_group("🏷️ Terminy", terms_box)
+        _right_panel("🏷️ Terminy", terms_box, "terms")
 
         self.concordance_list = QListWidget()
         self.concordance_list.setFixedHeight(110)
@@ -806,7 +795,7 @@ class EditorTab(QWidget):
         conc_row.addWidget(conc_btn)
         cb_layout.addLayout(conc_row)
         cb_layout.addWidget(self.concordance_list)
-        _right_group("🔍 Konkordancja", conc_box)
+        _right_panel("🔍 Konkordancja", conc_box, "conc")
 
         self.mt_view = QPlainTextEdit()
         self.mt_view.setFixedHeight(110)
@@ -828,7 +817,7 @@ class EditorTab(QWidget):
         mt_row.addWidget(quick_btn)
         mt_row.addWidget(use_btn)
         mt_layout.addLayout(mt_row)
-        _right_group("🤖 MT", mt_box)
+        _right_panel("🤖 MT", mt_box, "mt")
 
         # --- panel kontroli języka (tylko tłumaczenie) -------------------
         self.lang_list = QListWidget()
@@ -872,19 +861,17 @@ class EditorTab(QWidget):
         lang_btns.addWidget(check_now)
         lang_btns.addWidget(fix_btn)
         lang_layout.addLayout(lang_btns)
-        _right_group("🔤 Język", lang_box)
+        _right_panel("🔤 Język", lang_box, "lang")
 
         self.notes_edit = QPlainTextEdit()
         self.notes_edit.setFixedHeight(100)
         self.notes_edit.setPlaceholderText("Notatki do segmentu…")
         self.notes_edit.textChanged.connect(self._on_notes_changed)
-        _right_group("📝 Notatki", self.notes_edit)
-        right_layout.addStretch(1)
+        _right_panel("📝 Notatki", self.notes_edit, "notes")
         self.apply_panel_font()
 
         splitter.addWidget(left)
         splitter.addWidget(center)
-        splitter.addWidget(right)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 5)
         splitter.setStretchFactor(2, 2)
@@ -893,6 +880,7 @@ class EditorTab(QWidget):
         # przeciągnąć do zera i znikają bez możliwości przywrócenia.
         setup_splitter(splitter, minimums=[150, 320, 180])
         self.main_splitter = splitter
+        self.apply_panel_layout()
         layout.addWidget(splitter)
 
     def eventFilter(self, obj, event):  # noqa: N802 (Qt API)
@@ -1077,6 +1065,57 @@ class EditorTab(QWidget):
             proj.file_markers.pop(name, None)
         self.app.project_manager.save_project()
         self.update_file_counters()
+
+    def apply_panel_layout(self) -> None:
+        """Układa panele po prawej: wszystko naraz (stacked) lub zakładki.
+
+        Układ: ``tm.panel.layout``; widoczność poszczególnych paneli:
+        ``tm.panel.show.<klucz>``. Boxy są budowane raz — przy przełączeniu
+        tylko przenosimy je do nowego kontenera, więc stan (lista wyników,
+        notatki) zostaje.
+        """
+        sm = SettingsManager.instance()
+        mode = sm.get_str("tm.panel.layout", "stacked")
+        visible = [(title, w) for title, w, key in self._right_panels
+                   if sm.get_bool(f"tm.panel.show.{key}", True)]
+        # wypnij boxy ze starego kontenera (przeżyją deleteLater)
+        for _title, w, _key in self._right_panels:
+            w.setParent(None)
+        old = getattr(self, "_right_container", None)
+        if old is not None:
+            # QSplitter nie ma removeWidget — odpinamy rodzica, splitter
+            # samo oczyści handle (childEvent), a kontener idzie do kosza.
+            old.setParent(None)
+            old.deleteLater()
+        if mode == "tabs":
+            container = QTabWidget()
+            for title, w in visible:
+                container.addTab(w, title)
+        else:
+            container = QScrollArea()
+            container.setWidgetResizable(True)
+            container.setFrameShape(QFrame.Shape.NoFrame)
+            inner = QWidget()
+            il = QVBoxLayout(inner)
+            il.setContentsMargins(0, 0, 2, 0)
+            il.setSpacing(6)
+            for title, w in visible:
+                grp = QGroupBox(title)
+                gl = QVBoxLayout(grp)
+                gl.setContentsMargins(6, 4, 6, 6)
+                gl.addWidget(w)
+                il.addWidget(grp)
+            il.addStretch(1)
+            container.setWidget(inner)
+        self._right_container = container
+        self.main_splitter.insertWidget(self.main_splitter.count(), container)
+        # Kontener wchodzi do splittera PO setup_splitter() — musi sam
+        # zadbać o minimum i niemożność zwinięcia (inaczej znika do zera).
+        idx = self.main_splitter.count() - 1
+        self.main_splitter.setCollapsible(idx, False)
+        container.setMinimumWidth(180)
+        self.main_splitter.setStretchFactor(idx, 2)
+        self.apply_panel_font()
 
     def apply_panel_font(self) -> None:
         """Wielkość czcionki paneli po prawej (TM / zdania / terminy / konkordancja).

@@ -548,6 +548,11 @@ class SettingsTab(QTabWidget):
         if editor is not None and hasattr(editor, "apply_panel_font"):
             editor.apply_panel_font()
 
+    def _apply_panel_layout(self) -> None:
+        editor = getattr(self.app, "editor_tab", None)
+        if editor is not None and hasattr(editor, "apply_panel_layout"):
+            editor.apply_panel_layout()
+
     def _detect_codes_from_files(self) -> None:
         """Skanuje źródła otwartego projektu i wypełnia listę kodów gry."""
         from ..core.tags import detect_codes
@@ -1433,6 +1438,53 @@ class SettingsTab(QTabWidget):
         cb_l.addWidget(self.fix_long_lines)
         cb_l.addWidget(font_row)
         form.addRow(codes_box)
+
+        # --- panel prawy: układ + widoczność ---
+        self.panel_layout_combo = QComboBox()
+        self.panel_layout_combo.addItem("Wszystko naraz (jedno pod drugim)", "stacked")
+        self.panel_layout_combo.addItem("Zakładki", "tabs")
+        self.panel_layout_combo.setToolTip(
+            "Jak wyglądają panele po prawej stronie edytora.\n"
+            "„Wszystko naraz” — wszystkie pod spodem, bez klikania;\n"
+            "„Zakładki” — klasyczne karty do przełączania.")
+        cur = self.settings.get_str("tm.panel.layout", "stacked")
+        self.panel_layout_combo.setCurrentIndex(
+            1 if cur == "tabs" else 0)
+        self.panel_layout_combo.currentIndexChanged.connect(
+            lambda i: (self.settings.set("tm.panel.layout",
+                                         self.panel_layout_combo.itemData(i)),
+                       self._apply_panel_layout()))
+
+        self._panel_show_checks = {}
+        for key, label in (("matches", "Dopasowania TM"),
+                           ("sentences", "Dopasowanie zdań"),
+                           ("terms", "Terminy"),
+                           ("conc", "Konkordancja"),
+                           ("mt", "MT"),
+                           ("lang", "Język"),
+                           ("notes", "Notatki")):
+            cb = QCheckBox(label)
+            cb.setChecked(self.settings.get_bool(f"tm.panel.show.{key}", True))
+            cb.stateChanged.connect(
+                lambda st, k=key: (self.settings.set(f"tm.panel.show.{k}", bool(st)),
+                                   self._apply_panel_layout()))
+            self._panel_show_checks[key] = cb
+
+        right_box = QGroupBox("Panel prawy edytora (układ i zawartość)")
+        right_box.setStyleSheet("QGroupBox { font-size: 11px; color: #666; }")
+        rb_l = QVBoxLayout(right_box)
+        rb_l.setContentsMargins(8, 4, 8, 4)
+        rb_row = QHBoxLayout()
+        rb_row.addWidget(QLabel("Układ:"))
+        rb_row.addWidget(self.panel_layout_combo)
+        rb_row.addStretch(1)
+        rb_l.addLayout(rb_row)
+        show_row = QHBoxLayout()
+        for key in ("matches", "sentences", "terms", "conc", "mt", "lang", "notes"):
+            show_row.addWidget(self._panel_show_checks[key])
+        show_row.addStretch(1)
+        rb_l.addLayout(show_row)
+        form.addRow(right_box)
 
         self.filter_english = QCheckBox("Ukrywaj wpisy nieprzetłumaczone (tłumaczenie ≈ źródło)")
         self.filter_english.setToolTip(
