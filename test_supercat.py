@@ -5966,7 +5966,7 @@ Dziękujemy za korzystanie z MYSTERY"""
     check("panel: wysokości przesuwne (pionowy splitter zamiast równego podziału)",
           isinstance(_stack28, _QSplit28)
           and _stack28.orientation() == Qt.Orientation.Vertical
-          and _stack28.count() == 7,
+          and _stack28.count() >= 7,
           f"{type(_stack28).__name__} / {_stack28.count() if _stack28 else 0}")
     check("panel: uchwyt wysokości jest widoczny i opisany",
           _stack28.handleWidth() >= 8 and bool(_stack28.handle(0).styleSheet())
@@ -5996,7 +5996,9 @@ Dziękujemy za korzystanie z MYSTERY"""
           f"{_big28} vs {w.editor_tab._right_stack.sizes()[0]}")
     w.editor_tab.reset_panel_heights()
     app.processEvents()
-    _eq28 = w.editor_tab._right_stack.sizes()
+    _eq28 = [s for i, s in enumerate(w.editor_tab._right_stack.sizes())
+             if (w.editor_tab._right_stack.widget(i) is not None
+                 and w.editor_tab._right_stack.widget(i).objectName() != "sc_right_tail")]
     check("panel: reset daje równy podział wysokości", max(_eq28) - min(_eq28) <= 2, str(_eq28))
 
     # --- TM ponownie, także do segmentów już przetłumaczonych ---

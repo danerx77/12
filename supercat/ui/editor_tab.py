@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QApplication, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
     QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit,
     QGroupBox, QGridLayout, QProgressBar, QScrollArea,
-    QPushButton, QSizePolicy, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QToolButton, QVBoxLayout,
+    QPushButton, QSizePolicy, QSplitter, QSplitterHandle, QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QToolButton, QVBoxLayout,
     QWidget,
 )
 
@@ -577,6 +577,78 @@ class TargetEdit(QPlainTextEdit):
             tab = tab.parent()
         if tab is not None:
             tab._paint_language_underlines(self)
+
+
+class ExpandingSplitter(QSplitter):
+    """Pionowy splitter, który nie zgniata paneli.
+
+    Przeciągnięcie uchwytu zmienia TYLKO panel nad nim. Reszta zjeżdża w dół
+    i wydłuża się pasek przewijania kolumny — sąsiad nie maleje.
+    """
+
+    def __init__(self, orientation=Qt.Orientation.Vertical, parent=None) -> None:
+        super().__init__(orientation, parent)
+        self._panel_min = 280
+        self.setChildrenCollapsible(False)
+
+    def createHandle(self):  # noqa: N802
+        return ExpandingHandle(self.orientation(), self)
+
+    def apply_panel_sizes(self, sizes) -> None:
+        sizes = [max(0, int(v)) for v in sizes]
+        extra = self.handleWidth() * max(0, self.count() - 1)
+        height = sum(sizes) + extra
+        self.setMinimumHeight(max(1, height))
+        self.resize(max(1, self.width()), max(1, height))
+        self.setSizes(sizes)
+
+
+class ExpandingHandle(QSplitterHandle):
+    def __init__(self, orientation, parent) -> None:
+        super().__init__(orientation, parent)
+        self._drag_y = 0.0
+        self._drag_sizes: list[int] = []
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_y = event.globalPosition().y()
+            self._drag_sizes = list(self.splitter().sizes())
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        splitter = self.splitter()
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
+        if not isinstance(splitter, ExpandingSplitter) or not self._drag_sizes:
+            super().mouseMoveEvent(event)
+            return
+        dy = int(event.globalPosition().y() - self._drag_y)
+        index = 0
+        for i in range(max(0, splitter.count() - 1)):
+            if splitter.handle(i) is self:
+                index = i
+                break
+        sizes = list(self._drag_sizes)
+        if index >= len(sizes):
+            return
+        minimum = splitter._panel_min
+        # Uchwyt i leży POD panelem i. Ciągnięcie w dół powiększa TEN panel;
+        # panele niżej zostają i zjeżdżają (suma rośnie → pasek kolumny dłuższy).
+        sizes[index] = max(minimum, self._drag_sizes[index] + dy)
+        for i in range(len(sizes)):
+            widget = splitter.widget(i)
+            if widget is not None and widget.objectName() == "sc_right_tail":
+                sizes[i] = 0
+        splitter.apply_panel_sizes(sizes)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        super().mouseReleaseEvent(event)
+        splitter = self.splitter()
+        # splitterMoved nie zawsze idzie, gdy nie wołamy super().mouseMove
+        try:
+            splitter.splitterMoved.emit(0, 0)
+        except Exception:
+            pass
 
 
 class EditorTab(QWidget):
@@ -1583,7 +1655,14 @@ class EditorTab(QWidget):
             sizes = json.loads(raw)
         except ValueError:
             return False
-        if not isinstance(sizes, list) or len(sizes) != stack.count():
+        if not isinstance(sizes, list):
+            return False
+        # Stary zapis bez atrapy na końcu — dopasuj długość.
+        if len(sizes) == stack.count() - 1 and stack.count() > 0:
+            tail = stack.widget(stack.count() - 1)
+            if tail is not None and tail.objectName() == "sc_right_tail":
+                sizes = list(sizes) + [0]
+        if len(sizes) != stack.count():
             return False                      # inny zestaw paneli – zostaw równo
         try:
             values = [max(0, int(v)) for v in sizes]
@@ -1594,7 +1673,12 @@ class EditorTab(QWidget):
         # wysokości) — lepiej zacząć od preferowanych rozmiarów.
         if values and max(values) < int(preferred * 0.75):
             return False
-        stack.setSizes([max(preferred, v) for v in values])
+        clamped = []
+        for index, value in enumerate(values):
+            child = stack.widget(index)
+            dummy = (child is not None and child.objectName() == "sc_right_tail")
+            clamped.append(0 if dummy else max(preferred, value))
+        stack.setSizes(clamped)
         return True
 
     def reset_panel_heights(self) -> None:
@@ -1604,7 +1688,12 @@ class EditorTab(QWidget):
             return
         self._fit_right_stack()
         preferred = self._right_panel_preferred_height()
-        stack.setSizes([preferred] * stack.count())
+        sizes = []
+        for index in range(stack.count()):
+            child = stack.widget(index)
+            dummy = (child is not None and child.objectName() == "sc_right_tail")
+            sizes.append(0 if dummy else preferred)
+        stack.setSizes(sizes)
         self._sync_right_stack_size()
         self._save_panel_heights()
 
@@ -1679,6 +1768,8 @@ class EditorTab(QWidget):
         if stack is None or not stack.count():
             return
         preferred = self._right_panel_preferred_height()
+        if isinstance(stack, ExpandingSplitter):
+            stack._panel_min = preferred
         em = self._panel_em_px()
         for widget in (
             getattr(self, "matches_list", None),
@@ -1695,25 +1786,24 @@ class EditorTab(QWidget):
             key for _title, _w, key in self._right_panels
             if SettingsManager.instance().get_bool(f"tm.panel.show.{key}", True)
         ]
+        real = 0
         for index in range(stack.count()):
             child = stack.widget(index)
             if child is None:
                 continue
-            # Nie wolno schodzić poniżej wygodnej wysokości — dolne panele
-            # mają się przewijać, a nie kurczyć (przyciski Język / Notatki).
+            if child.objectName() == "sc_right_tail" or child.maximumHeight() == 0:
+                child.setMinimumHeight(0)
+                child.setMaximumHeight(0)
+                stack.setStretchFactor(index, 0)
+                continue
             child.setMinimumHeight(preferred)
             child.setSizePolicy(QSizePolicy.Policy.Preferred,
                                 QSizePolicy.Policy.Minimum)
-            key = visible_keys[index] if index < len(visible_keys) else ""
-            if key in ("matches", "sentences"):
-                stretch = 3
-            elif key == "notes":
-                stretch = 2
-            else:
-                stretch = 1
-            stack.setStretchFactor(index, stretch)
+            key = visible_keys[real] if real < len(visible_keys) else ""
+            real += 1
+            stack.setStretchFactor(index, 0)
         extra = stack.handleWidth() * max(0, stack.count() - 1)
-        stack.setMinimumHeight(preferred * stack.count() + extra)
+        stack.setMinimumHeight(preferred * max(1, real) + extra)
         self._sync_right_stack_size()
 
     def _sync_right_stack_size(self) -> None:
@@ -1738,10 +1828,18 @@ class EditorTab(QWidget):
     def _sync_right_stack_size_body(self, stack, container) -> None:
         preferred = self._right_panel_preferred_height()
         extra = stack.handleWidth() * max(0, stack.count() - 1)
-        sizes = list(stack.sizes())
-        if len(sizes) != stack.count() or sum(sizes) <= 0:
-            sizes = [preferred] * stack.count()
-        sizes = [max(preferred, int(s)) for s in sizes]
+        raw = list(stack.sizes())
+        sizes = []
+        for index in range(stack.count()):
+            child = stack.widget(index)
+            dummy = (child is not None and (
+                child.objectName() == "sc_right_tail" or child.maximumHeight() == 0))
+            if dummy:
+                sizes.append(0)
+            elif index < len(raw) and raw[index] > 0:
+                sizes.append(max(preferred, int(raw[index])))
+            else:
+                sizes.append(preferred)
         height = sum(sizes) + extra
         stack.setMinimumHeight(height)
         width = stack.width() or self._right_column_min_width()
@@ -1751,7 +1849,7 @@ class EditorTab(QWidget):
                 width = vw
         if stack.width() != width or stack.height() != height:
             stack.resize(max(1, width), height)
-        if stack.sizes() != sizes:
+        if list(stack.sizes()) != sizes:
             stack.setSizes(sizes)
 
     def apply_panel_layout(self) -> None:
@@ -1797,15 +1895,10 @@ class EditorTab(QWidget):
             container.setFrameShape(QFrame.Shape.NoFrame)
             container.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             container.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            # Pionowy splitter zamiast zwykłego układu: wysokość każdego
-            # panelu można przeciągnąć myszą. Dawniej panele dzieliły się
-            # po równo i nie było czego złapać — nie dało się powiększyć
-            # „Dopasowań TM” kosztem pozostałych.
-            # Minimum musi być liczone od czcionki: stałe 60 px ściskało
-            # 7 paneli w oknie i teksty nachodziły na siebie. Sumaryczna
-            # wysokość preferowana jest większa niż okno, więc pojawia
-            # się pasek przewijania zamiast zgniatania.
-            stack = QSplitter(Qt.Orientation.Vertical)
+            # Pionowy splitter, który NIE zgniata sąsiadów: przeciągnięcie
+            # powiększa jeden panel, reszta zjeżdża w dół, a pasek
+            # QScrollArea (ten od kolumny) się wydłuża.
+            stack = ExpandingSplitter(Qt.Orientation.Vertical)
             for title, w in visible:
                 grp = QGroupBox(title)
                 grp.setSizePolicy(QSizePolicy.Policy.Preferred,
@@ -1815,12 +1908,24 @@ class EditorTab(QWidget):
                 gl.setSpacing(6)
                 gl.addWidget(w)
                 stack.addWidget(grp)
+            # Atrapa pod spodem — uchwyt POD notatkami, żeby dało się je
+            # powiększyć (zwykły splitter nie ma uchwytu za ostatnim panelem).
+            tail = QWidget()
+            tail.setObjectName("sc_right_tail")
+            tail.setMinimumHeight(0)
+            tail.setMaximumHeight(0)
+            tail.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+            stack.addWidget(tail)
+            stack.setCollapsible(stack.count() - 1, True)
             preferred = self._right_panel_preferred_height()
-            setup_splitter(stack, minimums=[preferred] * stack.count())
+            stack._panel_min = preferred
+            mins = [preferred] * (stack.count() - 1) + [0]
+            setup_splitter(stack, minimums=mins)
+            stack.setCollapsible(stack.count() - 1, True)
             for handle_index in range(stack.count() - 1):
                 stack.handle(handle_index).setToolTip(
-                    "Przeciągnij, żeby zmienić wysokość panelu — "
-                    "ustawienie jest zapamiętywane")
+                    "Przeciągnij w dół, żeby powiększyć panel — "
+                    "reszta zjedzie niżej (pasek kolumny się wydłuży)")
             container.setWidget(stack)
             container.installEventFilter(self)
             if container.viewport() is not None:
@@ -1860,8 +1965,12 @@ class EditorTab(QWidget):
             # odnieść — Qt i tak zachowa proporcje, gdy okno jest inne.
             if not self._restore_panel_heights():
                 preferred = self._right_panel_preferred_height()
-                self._right_stack.setSizes(
-                    [preferred] * self._right_stack.count())
+                init = []
+                for index in range(self._right_stack.count()):
+                    child = self._right_stack.widget(index)
+                    dummy = (child is not None and child.objectName() == "sc_right_tail")
+                    init.append(0 if dummy else preferred)
+                self._right_stack.setSizes(init)
             self._right_stack.splitterMoved.connect(self._on_right_stack_moved)
             self._sync_right_stack_size()
         for _title, widget in visible:
