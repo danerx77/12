@@ -1117,6 +1117,10 @@ class EditorTab(QWidget):
         (skok w tekście), więc zwykły QShortcut nigdy by się nie uruchomił.
         Tutaj łapiemy te kombinacje wcześniej i zamieniamy na zmianę segmentu.
         """
+        container = getattr(self, "_right_container", None)
+        if (event.type() == QEvent.Type.Resize and container is not None
+                and obj in (container, getattr(container, "viewport", lambda: None)())):
+            self._sync_right_stack_size()
         if event.type() == QEvent.Type.KeyPress:
             mods = event.modifiers()
             key = event.key()
@@ -1275,12 +1279,12 @@ class EditorTab(QWidget):
         self._undo_stack.clear()
         self._redo_stack.clear()
         self._volatile_sent.clear()
-        self.current_index = 0 if segments else -1
+        self.current_index = -1
         self.refresh_files_list()
         self.refresh_grid()
         if segments:
-            self.load_segment(0)
-            self._restore_last_segment()
+            if not self._restore_last_segment():
+                self.load_segment(0)
         else:
             self.source_edit.clear()
             self.target_edit.clear()
@@ -1319,8 +1323,13 @@ class EditorTab(QWidget):
         offset = sum(1 for s in self.segments[:self.current_index]
                      if (s.file_name or "(bez pliku)") == name)
         remembered[name] = offset
-        if len(remembered) > 200:
-            remembered = dict(list(remembered.items())[-200:])
+        # "*" = miejsce w całym projekcie (widok „wszystkie pliki” i restart).
+        remembered["*"] = {"file": name, "offset": offset}
+        meta = {k: v for k, v in remembered.items() if k in ("*", "_filter")}
+        files = {k: v for k, v in remembered.items() if k not in meta}
+        if len(files) > 200:
+            files = dict(list(files.items())[-200:])
+        remembered = {**files, **meta}
         try:
             SettingsManager.instance().set(self.LAST_SEGMENT_KEY,
                                            json.dumps(remembered))
@@ -1338,31 +1347,46 @@ class EditorTab(QWidget):
 
         if not self.segments:
             return False
-        name = self._file_filter or "(bez pliku)"
         try:
             raw = SettingsManager.instance().get(self.LAST_SEGMENT_KEY)
             remembered = json.loads(raw) if isinstance(raw, str) and raw else {}
         except (ValueError, TypeError):
             return False
-        if not isinstance(remembered, dict) or name not in remembered:
+        if not isinstance(remembered, dict):
             return False
-        try:
-            wanted = int(remembered[name])
-        except (TypeError, ValueError):
-            return False
-        if self._file_filter:
-            # liczymy pozycję wewnątrz tego pliku
+
+        def _load_in_file(file_name: str, offset: int) -> bool:
             seen = -1
+            wanted_name = file_name or "(bez pliku)"
             for index, seg in enumerate(self.segments):
-                if (seg.file_name or "(bez pliku)") != name:
+                if (seg.file_name or "(bez pliku)") != wanted_name:
                     continue
                 seen += 1
-                if seen == wanted:
+                if seen == offset:
                     self.load_segment(index)
                     return True
             return False
-        if 0 <= wanted < len(self.segments):
-            self.load_segment(wanted)
+
+        if self._file_filter:
+            name = self._file_filter
+            if name not in remembered:
+                return False
+            try:
+                wanted = int(remembered[name])
+            except (TypeError, ValueError):
+                return False
+            return _load_in_file(name, wanted)
+
+        # Widok wszystkich plików / ponowne otwarcie projektu: klucz "*".
+        star = remembered.get("*")
+        if isinstance(star, dict):
+            try:
+                return _load_in_file(str(star.get("file") or "(bez pliku)"),
+                                     int(star.get("offset")))
+            except (TypeError, ValueError):
+                return False
+        if isinstance(star, int) and 0 <= star < len(self.segments):
+            self.load_segment(star)
             return True
         return False
 
@@ -1478,6 +1502,11 @@ class EditorTab(QWidget):
         new_center = max(0, rest - new_left)
         splitter.setSizes([new_left, new_center, right])
 
+    def _on_right_stack_moved(self, *_a) -> None:
+        """Po przeciągnięciu: nie zgniataj sąsiadów — wydłuż przewijany stos."""
+        self._sync_right_stack_size()
+        self._save_panel_heights()
+
     def _save_panel_heights(self, *_a) -> None:
         """Zapamiętuje wysokości paneli po prawej (przeciąganie myszą)."""
         import json
@@ -1516,12 +1545,11 @@ class EditorTab(QWidget):
         except (TypeError, ValueError):
             return False
         preferred = self._right_panel_preferred_height()
-        compact = self._right_panel_min_height()
         # Układ z poprzedniej, zgniecionej wersji (wszystko poniżej wygodnej
         # wysokości) — lepiej zacząć od preferowanych rozmiarów.
         if values and max(values) < int(preferred * 0.75):
             return False
-        stack.setSizes([max(compact, v) for v in values])
+        stack.setSizes([max(preferred, v) for v in values])
         return True
 
     def reset_panel_heights(self) -> None:
@@ -1531,9 +1559,8 @@ class EditorTab(QWidget):
             return
         self._fit_right_stack()
         preferred = self._right_panel_preferred_height()
-        live = stack.height() // stack.count() if stack.height() else 0
-        per = max(preferred, live)
-        stack.setSizes([per] * stack.count())
+        stack.setSizes([preferred] * stack.count())
+        self._sync_right_stack_size()
         self._save_panel_heights()
 
     def _restore_split_sizes(self) -> None:
@@ -1602,11 +1629,10 @@ class EditorTab(QWidget):
         return max(300, em * 18)
 
     def _fit_right_stack(self) -> None:
-        """Dopasowuje minima stacked-paneli do czcionki, żeby pojawił się scroll."""
+        """Minima stacked-paneli = wygodna wysokość; nadmiar idzie w pasek."""
         stack = getattr(self, "_right_stack", None)
         if stack is None or not stack.count():
             return
-        compact = self._right_panel_min_height()
         preferred = self._right_panel_preferred_height()
         em = self._panel_em_px()
         for widget in (
@@ -1628,11 +1654,60 @@ class EditorTab(QWidget):
             child = stack.widget(index)
             if child is None:
                 continue
-            child.setMinimumHeight(compact)
+            # Nie wolno schodzić poniżej wygodnej wysokości — dolne panele
+            # mają się przewijać, a nie kurczyć (przyciski Język / Notatki).
+            child.setMinimumHeight(preferred)
+            child.setSizePolicy(QSizePolicy.Policy.Preferred,
+                                QSizePolicy.Policy.Minimum)
             key = visible_keys[index] if index < len(visible_keys) else ""
-            stack.setStretchFactor(index, 3 if key in ("matches", "sentences") else 1)
+            if key in ("matches", "sentences"):
+                stretch = 3
+            elif key == "notes":
+                stretch = 2
+            else:
+                stretch = 1
+            stack.setStretchFactor(index, stretch)
         extra = stack.handleWidth() * max(0, stack.count() - 1)
         stack.setMinimumHeight(preferred * stack.count() + extra)
+        self._sync_right_stack_size()
+
+    def _sync_right_stack_size(self) -> None:
+        """QScrollArea nie kurczy splittera: szerokość = viewport, wysokość = suma paneli.
+
+        Przy ``widgetResizable=True`` Qt wciska 7 paneli w okno i Język/Notatki
+        znikają. Tu splitter ma własną wysokość, a obszar się przewija.
+        Powiększenie panelu (np. notatek) wydłuża zawartość, nie zgniata sąsiadów.
+        """
+        if getattr(self, "_syncing_right_stack", False):
+            return
+        stack = getattr(self, "_right_stack", None)
+        container = getattr(self, "_right_container", None)
+        if stack is None or not stack.count():
+            return
+        self._syncing_right_stack = True
+        try:
+            self._sync_right_stack_size_body(stack, container)
+        finally:
+            self._syncing_right_stack = False
+
+    def _sync_right_stack_size_body(self, stack, container) -> None:
+        preferred = self._right_panel_preferred_height()
+        extra = stack.handleWidth() * max(0, stack.count() - 1)
+        sizes = list(stack.sizes())
+        if len(sizes) != stack.count() or sum(sizes) <= 0:
+            sizes = [preferred] * stack.count()
+        sizes = [max(preferred, int(s)) for s in sizes]
+        height = sum(sizes) + extra
+        stack.setMinimumHeight(height)
+        width = stack.width() or self._right_column_min_width()
+        if isinstance(container, QScrollArea) and container.viewport() is not None:
+            vw = container.viewport().width()
+            if vw > 0:
+                width = vw
+        if stack.width() != width or stack.height() != height:
+            stack.resize(max(1, width), height)
+        if stack.sizes() != sizes:
+            stack.setSizes(sizes)
 
     def apply_panel_layout(self) -> None:
         """Układa panele po prawej: wszystko naraz (stacked) lub zakładki.
@@ -1673,7 +1748,7 @@ class EditorTab(QWidget):
                 container.addTab(w, title)
         else:
             container = QScrollArea()
-            container.setWidgetResizable(True)
+            container.setWidgetResizable(False)
             container.setFrameShape(QFrame.Shape.NoFrame)
             container.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             container.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -1689,19 +1764,22 @@ class EditorTab(QWidget):
             for title, w in visible:
                 grp = QGroupBox(title)
                 grp.setSizePolicy(QSizePolicy.Policy.Preferred,
-                                  QSizePolicy.Policy.Expanding)
+                                  QSizePolicy.Policy.Minimum)
                 gl = QVBoxLayout(grp)
                 gl.setContentsMargins(8, 8, 8, 8)
                 gl.setSpacing(6)
                 gl.addWidget(w)
                 stack.addWidget(grp)
-            compact = self._right_panel_min_height()
-            setup_splitter(stack, minimums=[compact] * stack.count())
+            preferred = self._right_panel_preferred_height()
+            setup_splitter(stack, minimums=[preferred] * stack.count())
             for handle_index in range(stack.count() - 1):
                 stack.handle(handle_index).setToolTip(
                     "Przeciągnij, żeby zmienić wysokość panelu — "
                     "ustawienie jest zapamiętywane")
             container.setWidget(stack)
+            container.installEventFilter(self)
+            if container.viewport() is not None:
+                container.viewport().installEventFilter(self)
             self._right_stack = stack
             self._fit_right_stack()
         self._right_container = container
@@ -1739,7 +1817,8 @@ class EditorTab(QWidget):
                 preferred = self._right_panel_preferred_height()
                 self._right_stack.setSizes(
                     [preferred] * self._right_stack.count())
-            self._right_stack.splitterMoved.connect(self._save_panel_heights)
+            self._right_stack.splitterMoved.connect(self._on_right_stack_moved)
+            self._sync_right_stack_size()
         for _title, widget in visible:
             widget.show()
         if isinstance(container, QTabWidget):

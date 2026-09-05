@@ -1708,6 +1708,11 @@ class MainWindow(QMainWindow):
         self.import_file_paths(paths)
 
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt API)
+        try:
+            self.editor_tab._last_seg_timer.stop()
+            self.editor_tab._save_last_segment()
+        except Exception:
+            pass
         if self.project:
             answer = QMessageBox.question(
                 self, "Zakończ",

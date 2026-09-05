@@ -4495,7 +4495,7 @@ Dziękujemy za korzystanie z MYSTERY"""
           len(_boxes2) == 7 and all(b.geometry().height() > 50 for b in _boxes2),
           str([b.geometry().height() for b in _boxes2]))
     check("stacked: minima od czcionki, suma wyższa niż okno (scroll zamiast zgniatania)",
-          all(b.minimumHeight() >= 140 for b in _boxes2)
+          all(b.minimumHeight() >= 280 for b in _boxes2)
           and w.editor_tab._right_stack.minimumHeight()
           >= 7 * w.editor_tab._right_panel_preferred_height(),
           str([b.minimumHeight() for b in _boxes2])
@@ -5935,14 +5935,20 @@ Dziękujemy za korzystanie z MYSTERY"""
           and "wysokość" in _stack28.handle(0).toolTip(),
           f"{_stack28.handleWidth()} px / {_stack28.handle(0).toolTip()[:36]!r}")
     _h_before28 = list(_stack28.sizes())
-    _big28 = int(sum(_h_before28) * 0.4)
-    _rest28 = (sum(_h_before28) - _big28) // (_stack28.count() - 1)
-    _stack28.setSizes([_big28] + [_rest28] * (_stack28.count() - 1))
+    _pref28 = w.editor_tab._right_panel_preferred_height()
+    _big28 = _h_before28[0] + 80
+    _sizes28 = [_big28] + [max(_pref28, s) for s in _h_before28[1:]]
+    _stack28.setMinimumHeight(sum(_sizes28) + _stack28.handleWidth() * 6)
+    _stack28.setSizes(_sizes28)
     app.processEvents()
+    w.editor_tab._sync_right_stack_size()
     w.editor_tab._save_panel_heights()
     check("panel: pierwszy panel da się powiększyć (przeciągnięcie)",
           w.editor_tab._right_stack.sizes()[0] > _h_before28[0] + 50,
           f"{_h_before28[:2]} -> {w.editor_tab._right_stack.sizes()[:2]}")
+    check("panel: powiększenie nie zgniata reszty (scroll zamiast kurczenia)",
+          all(s >= _pref28 - 2 for s in w.editor_tab._right_stack.sizes()[1:]),
+          str(w.editor_tab._right_stack.sizes()))
     for _mode28 in ("tabs", "stacked"):
         smgr2.set("tm.panel.layout", _mode28)
         w.editor_tab.apply_panel_layout()
@@ -6144,6 +6150,12 @@ Dziękujemy za korzystanie z MYSTERY"""
     _et._restore_last_segment()
     check("każdy plik pamięta swoje miejsce osobno",
           _et.current_index == 3, str(_et.current_index))
+    _et._file_filter = None
+    _et.load_segment(2)
+    _et._save_last_segment()
+    _et.set_segments(list(_segs28c))
+    check("po ponownym wczytaniu wraca do segmentu (nie na początek)",
+          _et.current_index == 2, str(_et.current_index))
     smgr2.set("editor.last.segment", "{}")
     _et._file_filter = None
 
