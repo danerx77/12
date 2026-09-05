@@ -93,8 +93,16 @@ class SentenceMatch:
 
     @property
     def label(self) -> str:
-        """Opis dla listy podpowiedzi — z ostrzeżeniem o niepełnym złożeniu."""
-        base = f"{self.kind} • pokrycie {self.coverage}%"
+        """Opis dla listy podpowiedzi — z ostrzeżeniem o niepełnym złożeniu.
+
+        „Pokrycie" to UDZIAŁ segmentu, który propozycja zamienia — nie jakość
+        dopasowania (ta jest w ``kind``, np. „~68%”). Dlatego 100% pokazujemy
+        jako „całość segmentu”, żeby nie wyglądało jak dopasowanie 100%.
+        """
+        if self.coverage >= 100:
+            base = f"{self.kind} • całość segmentu"
+        else:
+            base = f"{self.kind} • pokrycie {self.coverage}%"
         return f"⚠️ {base} • zostaje tekst źródłowy" if self.partial else base
 
     @property

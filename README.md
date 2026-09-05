@@ -8,8 +8,9 @@ jedno okno, górny pasek narzędzi i zakładki zamiast wielu okien.
 
 ## Ikona / EXE
 
-Ikona aplikacji: `supercat/assets/supercat.ico` (16–256 px) — ładowana
-automatycznie do okna i paska zadań. Przy budowie EXE (PyInstaller):
+Ikona aplikacji: `supercat/assets/supercat.ico` (16–256 px, motyw „A → Ł”) —
+ładowana automatycznie do okna **i paska zadań** (nie zostawia domyślnej
+ikony Pythona). Przy budowie EXE (PyInstaller):
 
 ```
 pyinstaller --onefile --windowed --name SuperCAT --icon supercat/assets/supercat.ico SuperCAT.py
@@ -31,7 +32,7 @@ Jedno okno, siedem zakładek (jak w Supervertaler Workbench):
 | Zakładka | Zawartość |
 |---|---|
 | 🤖 **AI** | dziennik pracy modelu, podgląd polecenia, wytyczne, test tłumaczenia |
-| 📝 **Edytor** | lista plików **z licznikiem postępu na bieżąco** (`plik.txt (91/1000 • 9%)`, ✅ przy ukończonych) **+ własne znaczniki plików** (✓ sprawdzone / ⚠️ uwaga / ✗ problem, klik prawym) • siatka segmentów • edytor źródło/cel • **panele po prawej: wybór układu** (wszystko naraz / zakładki) **+ wybór, które panele w ogóle się pokazują** **+ regulacja czcionki** (TM, dopasowanie zdań, terminy, konkordancja, MT, język, notatki) |
+| 📝 **Edytor** | lista plików **z licznikiem postępu na bieżąco** (`plik.txt (91/1000 • 9%)`, ✅ przy ukończonych) **+ własne znaczniki plików** (✓ sprawdzone / ⚠️ uwaga / ✗ problem, klik prawym) • siatka segmentów • edytor źródło/cel • **panele po prawej: wybór układu** (wszystko naraz / zakładki) **+ wybór, które panele się pokazują** **+ regulacja czcionki** • **szerokości kolumn zapamiętywane** między sesjami |
 | 💾 **Pamięć TM** | **Lista pamięci** (baza projektu, pliki TMX z folderu `tm/` oraz pamięci zaimportowane z innych lokalizacji) oraz **Przeglądaj i edytuj** – edycja wpisów dwuklikiem bezpośrednio w tabeli, import/eksport TMX |
 | 🏷️ **Glosariusz** | termbaza projektu, import/eksport CSV |
 | 📖 **Słowniki** | słowniki Hunspell/txt, sprawdzanie pisowni |
@@ -822,6 +823,9 @@ podpowiedź po dopasowaniu:
   oryginał bez przełamań, a tłumaczenie mu wyrosło? Program dokleja `\n`
   przy spacji tak, by każda linia mieściła się w szerokości oryginału
   (w grze za długi wiersz nie wyświetli się w całości).
+* **czytelne etykiety dopasowania zdań** — „pokrycie 100%” (czyli: propozycja
+  zamienia cały segment) pokazywane jest jako **„całość segmentu”**, żeby nie
+  mylić udziału tekstu z jakością dopasowania (ona jest w „~NN%”).
 * **case WNIETRZ linii** — jeśli TM trzyma wiersz z CAŁYM SŁOWEM po
   środku zdania („No special **ZDOLNOŚ**.”), a w oryginale to słowo ma
   małe litery („No special **ability**.”), podstawiane tłumaczenie dostaje

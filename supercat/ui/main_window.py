@@ -48,6 +48,11 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.settings = SettingsManager.instance()
+        # Ikona okna = ikona na pasku zadań (nie zostawia domyślnej Pytona).
+        from ..app import _app_icon as _set_icon
+        _ic = _set_icon()
+        if _ic is not None:
+            self.setWindowIcon(_ic)
         self.project_manager = ProjectManager.instance()
         self._exclusions = None
         self._menu_actions = {}

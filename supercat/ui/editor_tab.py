@@ -875,12 +875,16 @@ class EditorTab(QWidget):
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 5)
         splitter.setStretchFactor(2, 2)
-        splitter.setSizes([220, 900, 350])
         # Bez tego panel „Pliki projektu” albo prawa kolumna dają się
         # przeciągnąć do zera i znikają bez możliwości przywrócenia.
         setup_splitter(splitter, minimums=[150, 320, 180])
         self.main_splitter = splitter
         self.apply_panel_layout()
+        # Szerokości kolumn: zapamiętane z poprzedniej sesji albo domyślne.
+        splitter.setSizes([220, 900, 350])
+        self._restore_split_sizes()
+        splitter.splitterMoved.connect(self._save_split_sizes)
+        self.center_splitter.splitterMoved.connect(self._save_split_sizes)
         layout.addWidget(splitter)
 
     def eventFilter(self, obj, event):  # noqa: N802 (Qt API)
@@ -1065,6 +1069,35 @@ class EditorTab(QWidget):
             proj.file_markers.pop(name, None)
         self.app.project_manager.save_project()
         self.update_file_counters()
+
+    def _save_split_sizes(self, *_a) -> None:
+        """Pamięta szerokości kolumn (pliki | edytor | panel) między sesjami."""
+        try:
+            import json
+
+            SettingsManager.instance().set("editor.split.sizes", json.dumps({
+                "main": self.main_splitter.sizes(),
+                "center": self.center_splitter.sizes(),
+            }))
+        except Exception:
+            pass
+
+    def _restore_split_sizes(self) -> None:
+        import json
+
+        raw = SettingsManager.instance().get("editor.split.sizes")
+        if not isinstance(raw, str):
+            return
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            return
+        main = data.get("main")
+        if isinstance(main, list) and len(main) == self.main_splitter.count():
+            self.main_splitter.setSizes([max(0, int(v)) for v in main])
+        center = data.get("center")
+        if isinstance(center, list) and len(center) == self.center_splitter.count():
+            self.center_splitter.setSizes([max(0, int(v)) for v in center])
 
     def apply_panel_layout(self) -> None:
         """Układa panele po prawej: wszystko naraz (stacked) lub zakładki.

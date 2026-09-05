@@ -47,6 +47,7 @@ class SettingsTab(QTabWidget):
         self.app = app
         self.settings = SettingsManager.instance()
         self.addTab(_scroll(self._general_tab()), "⚙️ Ogólne")
+        self.addTab(_scroll(self._appearance_tab()), "🎨 Wygląd")
         self.addTab(_scroll(self._tm_tab()), "💾 Pamięć TM")
         self.addTab(_scroll(self._mt_tab()), "🤖 Tłumaczenie maszynowe")
         self.addTab(_scroll(self._language_tab()), "🔤 Pisownia i język")
@@ -57,11 +58,11 @@ class SettingsTab(QTabWidget):
         self.addTab(_wide_scroll(self._shortcuts_tab()), "⌨️ Skróty")
 
     # ------------------------------------------------------------------
-    def _general_tab(self) -> QWidget:
+    def _appearance_tab(self) -> QWidget:
+        """Wygląd: motyw, czcionki, znaki specjalne, panel prawy."""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-
-        appearance = QGroupBox("Wygląd")
+        appearance = QGroupBox("Zagrożenia")
         form = QFormLayout(appearance)
         self.theme_combo = QComboBox()
         self.theme_combo.setMaximumWidth(220)
@@ -91,6 +92,126 @@ class SettingsTab(QTabWidget):
         self.font_size.valueChanged.connect(lambda v: (self.settings.set("editor.font.size", v), self.app.apply_font()))
         form.addRow("Rozmiar czcionki edytora:", self.font_size)
         layout.addWidget(appearance)
+
+
+        markers_box = QGroupBox("Znaki specjalne w tabelach")
+        markers_box.setStyleSheet("QGroupBox { font-size: 11px; color: #666; }")
+        mform = QFormLayout(markers_box)
+        # znaki specjalne (przeniesione do zakładki Wygląd)
+        self.markers_spaces = QCheckBox("Pokazuj znaki spacji i tabulatora (␣ →) na brzegach")
+        self.markers_spaces.setToolTip(
+            "Wcięcie z pliku źródłowego jest oznaczane widocznym znakiem w siatce segmentów.\n"
+            "Wyłącz, jeśli wolisz czysty tekst."
+        )
+        self.markers_spaces.setChecked(self.settings.get_bool("ui.markers.spaces", True))
+        self.markers_spaces.stateChanged.connect(
+            lambda st: self._set_marker_option("ui.markers.spaces", bool(st)))
+        mform.addRow(self.markers_spaces)
+
+        self.markers_newlines = QCheckBox("Pokazuj znak końca wiersza (⏎) w tabelach")
+        self.markers_newlines.setToolTip(
+            "Twardy koniec wiersza w segmencie jest pokazywany jako ⏎.\n"
+            "Wyłączony – w jego miejscu pojawia się zwykła spacja."
+        )
+        self.markers_newlines.setChecked(self.settings.get_bool("ui.markers.newlines", True))
+        self.markers_newlines.stateChanged.connect(
+            lambda st: self._set_marker_option("ui.markers.newlines", bool(st)))
+        mform.addRow(self.markers_newlines)
+
+        self.markers_style = QComboBox()
+        self.markers_style.addItems(list(MARKER_STYLES.keys()))
+        self.markers_style.setCurrentText(
+            self.settings.get("ui.markers.style", DEFAULT_MARKER_STYLE))
+        self.markers_style.setToolTip(
+            "Zestaw znaków: spacja, tabulator, koniec wiersza.\n"
+            "„Tylko ASCII” przydaje się, gdy czcionka nie ma symboli Unicode."
+        )
+        self.markers_style.currentTextChanged.connect(
+            lambda text: self._set_marker_option("ui.markers.style", text))
+        mform.addRow("Zestaw znaków specjalnych:", self.markers_style)
+
+        self.highlight_ws = QCheckBox("Podświetlaj spacje na brzegach segmentu (wcięcia)")
+        self.highlight_ws.setToolTip(
+            "Wcięcie z pliku źródłowego dostaje kolorowe tło w polu źródła i tłumaczenia.\n"
+            "Czerwone tło = w źródle jest wcięcie, a w tłumaczeniu go brakuje."
+        )
+        self.highlight_ws.setChecked(self.settings.get_bool("ui.whitespace.highlight", True))
+        self.highlight_ws.stateChanged.connect(self._toggle_whitespace_highlight)
+        mform.addRow(self.highlight_ws)
+
+        layout.addWidget(markers_box)
+        font_row = QWidget()
+        font_form = QHBoxLayout(font_row)
+        font_form.setContentsMargins(0, 0, 0, 0)
+        self.panel_font_size = QSpinBox()
+        self.panel_font_size.setRange(0, 24)
+        self.panel_font_size.setSuffix(" pkt (0 = domyślna)")
+        self.panel_font_size.setToolTip(
+            "Wielkość czcionki w panelach po prawej: Dopasowania TM,\n"
+            "Dopasowanie zdań, Terminy, Konkordancja. Zero = czcionka aplikacji.")
+        self.panel_font_size.setValue(
+            self.settings.get_int("tm.panel.font.size", 0))
+        self.panel_font_size.valueChanged.connect(
+            lambda v: (self.settings.set("tm.panel.font.size", v),
+                       self._apply_panel_font()))
+        font_form.addWidget(QLabel("Czcionka paneli TM / zdań:"))
+        font_form.addWidget(self.panel_font_size)
+        font_form.addStretch(1)
+
+        self.panel_layout_combo = QComboBox()
+        self.panel_layout_combo.addItem("Wszystko naraz (jedno pod drugim)", "stacked")
+        self.panel_layout_combo.addItem("Zakładki", "tabs")
+        self.panel_layout_combo.setToolTip(
+            "Jak wyglądają panele po prawej stronie edytora.\n"
+            "„Wszystko naraz” — wszystkie pod spodem, bez klikania;\n"
+            "„Zakładki” — klasyczne karty do przełączania.")
+        cur = self.settings.get_str("tm.panel.layout", "stacked")
+        self.panel_layout_combo.setCurrentIndex(
+            1 if cur == "tabs" else 0)
+        self.panel_layout_combo.currentIndexChanged.connect(
+            lambda i: (self.settings.set("tm.panel.layout",
+                                         self.panel_layout_combo.itemData(i)),
+                       self._apply_panel_layout()))
+
+        self._panel_show_checks = {}
+        for key, label in (("matches", "Dopasowania TM"),
+                           ("sentences", "Dopasowanie zdań"),
+                           ("terms", "Terminy"),
+                           ("conc", "Konkordancja"),
+                           ("mt", "MT"),
+                           ("lang", "Język"),
+                           ("notes", "Notatki")):
+            cb = QCheckBox(label)
+            cb.setChecked(self.settings.get_bool(f"tm.panel.show.{key}", True))
+            cb.stateChanged.connect(
+                lambda st, k=key: (self.settings.set(f"tm.panel.show.{k}", bool(st)),
+                                   self._apply_panel_layout()))
+            self._panel_show_checks[key] = cb
+
+        right_box = QGroupBox("Panel prawy edytora (układ i zawartość)")
+        right_box.setStyleSheet("QGroupBox { font-size: 11px; color: #666; }")
+        rb_l = QVBoxLayout(right_box)
+        rb_l.setContentsMargins(8, 4, 8, 4)
+        rb_row = QHBoxLayout()
+        rb_row.addWidget(QLabel("Układ:"))
+        rb_row.addWidget(self.panel_layout_combo)
+        rb_row.addStretch(1)
+        rb_l.addLayout(rb_row)
+        show_row = QHBoxLayout()
+        for key in ("matches", "sentences", "terms", "conc", "mt", "lang", "notes"):
+            show_row.addWidget(self._panel_show_checks[key])
+        show_row.addStretch(1)
+        rb_l.addLayout(show_row)
+        rb_l.addWidget(font_row)
+        layout.addWidget(right_box)
+
+        layout.addStretch(1)
+        return widget
+
+    def _general_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
 
         editor = QGroupBox("Edytor i zapis")
         eform = QFormLayout(editor)
@@ -133,47 +254,6 @@ class SettingsTab(QTabWidget):
             lambda s: self.settings.set("search.window.enabled", bool(s)))
         eform.addRow(self.search_window)
 
-        # --- znaki specjalne w tabelach --------------------------------
-        self.markers_spaces = QCheckBox("Pokazuj znaki spacji i tabulatora (␣ →) na brzegach")
-        self.markers_spaces.setToolTip(
-            "Wcięcie z pliku źródłowego jest oznaczane widocznym znakiem w siatce segmentów.\n"
-            "Wyłącz, jeśli wolisz czysty tekst."
-        )
-        self.markers_spaces.setChecked(self.settings.get_bool("ui.markers.spaces", True))
-        self.markers_spaces.stateChanged.connect(
-            lambda st: self._set_marker_option("ui.markers.spaces", bool(st)))
-        eform.addRow(self.markers_spaces)
-
-        self.markers_newlines = QCheckBox("Pokazuj znak końca wiersza (⏎) w tabelach")
-        self.markers_newlines.setToolTip(
-            "Twardy koniec wiersza w segmencie jest pokazywany jako ⏎.\n"
-            "Wyłączony – w jego miejscu pojawia się zwykła spacja."
-        )
-        self.markers_newlines.setChecked(self.settings.get_bool("ui.markers.newlines", True))
-        self.markers_newlines.stateChanged.connect(
-            lambda st: self._set_marker_option("ui.markers.newlines", bool(st)))
-        eform.addRow(self.markers_newlines)
-
-        self.markers_style = QComboBox()
-        self.markers_style.addItems(list(MARKER_STYLES.keys()))
-        self.markers_style.setCurrentText(
-            self.settings.get("ui.markers.style", DEFAULT_MARKER_STYLE))
-        self.markers_style.setToolTip(
-            "Zestaw znaków: spacja, tabulator, koniec wiersza.\n"
-            "„Tylko ASCII” przydaje się, gdy czcionka nie ma symboli Unicode."
-        )
-        self.markers_style.currentTextChanged.connect(
-            lambda text: self._set_marker_option("ui.markers.style", text))
-        eform.addRow("Zestaw znaków specjalnych:", self.markers_style)
-
-        self.highlight_ws = QCheckBox("Podświetlaj spacje na brzegach segmentu (wcięcia)")
-        self.highlight_ws.setToolTip(
-            "Wcięcie z pliku źródłowego dostaje kolorowe tło w polu źródła i tłumaczenia.\n"
-            "Czerwone tło = w źródle jest wcięcie, a w tłumaczeniu go brakuje."
-        )
-        self.highlight_ws.setChecked(self.settings.get_bool("ui.whitespace.highlight", True))
-        self.highlight_ws.stateChanged.connect(self._toggle_whitespace_highlight)
-        eform.addRow(self.highlight_ws)
 
         self.highlight_terms = QCheckBox("Podświetlaj terminy glosariusza w tekście źródłowym")
         self.highlight_terms.setChecked(self.settings.get_bool("glossary.highlight", True))
@@ -1409,23 +1489,6 @@ class SettingsTab(QTabWidget):
         self.fix_long_lines.stateChanged.connect(
             lambda s: self.settings.set("tm.adapt.long.lines", bool(s)))
 
-        font_row = QWidget()
-        font_form = QHBoxLayout(font_row)
-        font_form.setContentsMargins(0, 0, 0, 0)
-        self.panel_font_size = QSpinBox()
-        self.panel_font_size.setRange(0, 24)
-        self.panel_font_size.setSuffix(" pkt (0 = domyślna)")
-        self.panel_font_size.setToolTip(
-            "Wielkość czcionki w panelach po prawej: Dopasowania TM,\n"
-            "Dopasowanie zdań, Terminy, Konkordancja. Zero = czcionka aplikacji.")
-        self.panel_font_size.setValue(
-            self.settings.get_int("tm.panel.font.size", 0))
-        self.panel_font_size.valueChanged.connect(
-            lambda v: (self.settings.set("tm.panel.font.size", v),
-                       self._apply_panel_font()))
-        font_form.addWidget(QLabel("Czcionka paneli TM / zdań:"))
-        font_form.addWidget(self.panel_font_size)
-        font_form.addStretch(1)
 
         codes_box = QGroupBox("Kody do dopasowania (dowolne, zależne od gry)")
         codes_box.setStyleSheet("QGroupBox { font-size: 11px; color: #666; }")
@@ -1436,55 +1499,9 @@ class SettingsTab(QTabWidget):
         cb_l.addWidget(self.adapt_codes_smart)
         cb_l.addWidget(self.fix_double_bs)
         cb_l.addWidget(self.fix_long_lines)
-        cb_l.addWidget(font_row)
         form.addRow(codes_box)
 
         # --- panel prawy: układ + widoczność ---
-        self.panel_layout_combo = QComboBox()
-        self.panel_layout_combo.addItem("Wszystko naraz (jedno pod drugim)", "stacked")
-        self.panel_layout_combo.addItem("Zakładki", "tabs")
-        self.panel_layout_combo.setToolTip(
-            "Jak wyglądają panele po prawej stronie edytora.\n"
-            "„Wszystko naraz” — wszystkie pod spodem, bez klikania;\n"
-            "„Zakładki” — klasyczne karty do przełączania.")
-        cur = self.settings.get_str("tm.panel.layout", "stacked")
-        self.panel_layout_combo.setCurrentIndex(
-            1 if cur == "tabs" else 0)
-        self.panel_layout_combo.currentIndexChanged.connect(
-            lambda i: (self.settings.set("tm.panel.layout",
-                                         self.panel_layout_combo.itemData(i)),
-                       self._apply_panel_layout()))
-
-        self._panel_show_checks = {}
-        for key, label in (("matches", "Dopasowania TM"),
-                           ("sentences", "Dopasowanie zdań"),
-                           ("terms", "Terminy"),
-                           ("conc", "Konkordancja"),
-                           ("mt", "MT"),
-                           ("lang", "Język"),
-                           ("notes", "Notatki")):
-            cb = QCheckBox(label)
-            cb.setChecked(self.settings.get_bool(f"tm.panel.show.{key}", True))
-            cb.stateChanged.connect(
-                lambda st, k=key: (self.settings.set(f"tm.panel.show.{k}", bool(st)),
-                                   self._apply_panel_layout()))
-            self._panel_show_checks[key] = cb
-
-        right_box = QGroupBox("Panel prawy edytora (układ i zawartość)")
-        right_box.setStyleSheet("QGroupBox { font-size: 11px; color: #666; }")
-        rb_l = QVBoxLayout(right_box)
-        rb_l.setContentsMargins(8, 4, 8, 4)
-        rb_row = QHBoxLayout()
-        rb_row.addWidget(QLabel("Układ:"))
-        rb_row.addWidget(self.panel_layout_combo)
-        rb_row.addStretch(1)
-        rb_l.addLayout(rb_row)
-        show_row = QHBoxLayout()
-        for key in ("matches", "sentences", "terms", "conc", "mt", "lang", "notes"):
-            show_row.addWidget(self._panel_show_checks[key])
-        show_row.addStretch(1)
-        rb_l.addLayout(show_row)
-        form.addRow(right_box)
 
         self.filter_english = QCheckBox("Ukrywaj wpisy nieprzetłumaczone (tłumaczenie ≈ źródło)")
         self.filter_english.setToolTip(

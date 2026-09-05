@@ -4402,6 +4402,68 @@ Dziękujemy za korzystanie z MYSTERY"""
     check("ikona: ładuje się jako QIcon (walidacja pliku)",
           bool(_ip) and not _QIcon(_ip).isNull())
 
+    def _in_tm_page():
+        page_tm = w.settings_tab.widget(next(
+            i for i in range(w.settings_tab.count())
+            if "Pamięć TM" in w.settings_tab.tabText(i)))
+        for cand in (w.settings_tab.panel_layout_combo, w.settings_tab.panel_font_size):
+            p = cand.parent()
+            while p is not None:
+                if p is page_tm:
+                    return True
+                p = p.parent()
+        return False
+
+    # --- zakładka Wygląd + etykieta „całość segmentu” + szerokości kolumn ---
+    print("\n24k. Zakładka Wygląd, etykieta dopasowania zdań, szerokości kolumn")
+    _tabs_txt = [w.settings_tab.tabText(i) for i in range(w.settings_tab.count())]
+    check("ustawienia: osobna zakładka „Wygląd”",
+          any("Wygląd" in tt for tt in _tabs_txt), str(_tabs_txt))
+    _ap_idx = next(i for i, tt in enumerate(_tabs_txt) if "Wygląd" in tt)
+    w.settings_tab.setCurrentIndex(_ap_idx)
+    app.processEvents()
+
+    def _on_appearance(widget):
+        p = widget.parent()
+        while p is not None:
+            if p is w.settings_tab.currentWidget():
+                return True
+            p = p.parent()
+        return False
+
+    check("wygląd: motyw i czcionka edytora w nowej zakładce",
+          _on_appearance(w.settings_tab.theme_combo)
+          and _on_appearance(w.settings_tab.font_size))
+    check("wygląd: panel prawy (układ + widoczność + czcionka) w zakładce",
+          _on_appearance(w.settings_tab.panel_layout_combo)
+          and _on_appearance(w.settings_tab.panel_font_size))
+    check("wygląd: znaki specjalne w zakładce",
+          _on_appearance(w.settings_tab.markers_spaces)
+          and _on_appearance(w.settings_tab.markers_style))
+    # te sterowniki MUSIA ZNIKNĄĆ ze starych miejsc
+    check("wygląd: panel prawy zniknął z zakładki Pamięć TM",
+          not _in_tm_page())
+    w.settings_tab.setCurrentIndex(0)
+
+    # etykieta: pokrycie 100% nie udaje „dopasowania 100%”
+    from supercat.core.tm import SentenceMatch as _SM24
+    lab_full = _SM24("src", "cel", "cel", 100).label
+    lab_part = _SM24("src", "cel", "cel", 37).label
+    check("zdania: 100% pokrywające = „całość segmentu”",
+          "całość segmentu" in lab_full and "100%" not in lab_full, lab_full)
+    check("zdania: częściowe = „pokrycie 37%”",
+          "pokrycie 37%" in lab_part, lab_part)
+
+    # szerokości kolumn zapamiętywane
+    w.editor_tab.main_splitter.setSizes([260, 700, 500])
+    w.editor_tab._save_split_sizes()
+    w.editor_tab.main_splitter.setSizes([200, 300, 900])
+    app.processEvents()
+    w.editor_tab._restore_split_sizes()
+    _sz = w.editor_tab.main_splitter.sizes()
+    check("kolumny: szerokości wracają po odtworzeniu",
+          abs(_sz[0] - 260) <= 5, str(_sz))
+
     # ---------------------------- Nawigacja klawiszami
     print("\n24b. Strzałki i zaznaczanie w siatce")
     from PyQt6.QtTest import QTest as _QTest
