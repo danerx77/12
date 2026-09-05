@@ -543,6 +543,11 @@ class SettingsTab(QTabWidget):
         self._fill_exclusions_table()
         self._refresh_exclusions_preview()
 
+    def _apply_panel_font(self) -> None:
+        editor = getattr(self.app, "editor_tab", None)
+        if editor is not None and hasattr(editor, "apply_panel_font"):
+            editor.apply_panel_font()
+
     def _detect_codes_from_files(self) -> None:
         """Skanuje źródła otwartego projektu i wypełnia listę kodów gry."""
         from ..core.tags import detect_codes
@@ -1386,6 +1391,37 @@ class SettingsTab(QTabWidget):
         self.fix_double_bs.stateChanged.connect(
             lambda s: self.settings.set("tm.codes.fix.double", bool(s)))
 
+        self.fix_long_lines = QCheckBox(
+            "Doklejaj kod wiersza (\n), gdy tłumaczenie jest dłuższe niż najdłuższa linia oryginału")
+        self.fix_long_lines.setToolTip(
+            "Oryginał bez przełamania, a tłumaczenie mu wyrosło? Program łamie\n"
+            "tłumaczenie przy spacji tak, by każda linia mieściła się w szerokości\n"
+            "oryginału — w grze za długi wiersz nie wyświetli się w całości.\n"
+            "Działa w podpowiedziach TM, w dopasowaniu zdań i w akcji „⇢ Dopasuj\n"
+            "znaczniki do oryginału”.")
+        self.fix_long_lines.setChecked(
+            self.settings.get_bool("tm.adapt.long.lines", True))
+        self.fix_long_lines.stateChanged.connect(
+            lambda s: self.settings.set("tm.adapt.long.lines", bool(s)))
+
+        font_row = QWidget()
+        font_form = QHBoxLayout(font_row)
+        font_form.setContentsMargins(0, 0, 0, 0)
+        self.panel_font_size = QSpinBox()
+        self.panel_font_size.setRange(0, 24)
+        self.panel_font_size.setSuffix(" pkt (0 = domyślna)")
+        self.panel_font_size.setToolTip(
+            "Wielkość czcionki w panelach po prawej: Dopasowania TM,\n"
+            "Dopasowanie zdań, Terminy, Konkordancja. Zero = czcionka aplikacji.")
+        self.panel_font_size.setValue(
+            self.settings.get_int("tm.panel.font.size", 0))
+        self.panel_font_size.valueChanged.connect(
+            lambda v: (self.settings.set("tm.panel.font.size", v),
+                       self._apply_panel_font()))
+        font_form.addWidget(QLabel("Czcionka paneli TM / zdań:"))
+        font_form.addWidget(self.panel_font_size)
+        font_form.addStretch(1)
+
         codes_box = QGroupBox("Kody do dopasowania (dowolne, zależne od gry)")
         codes_box.setStyleSheet("QGroupBox { font-size: 11px; color: #666; }")
         cb_l = QVBoxLayout(codes_box)
@@ -1394,6 +1430,8 @@ class SettingsTab(QTabWidget):
         cb_l.addWidget(codes_list_row)
         cb_l.addWidget(self.adapt_codes_smart)
         cb_l.addWidget(self.fix_double_bs)
+        cb_l.addWidget(self.fix_long_lines)
+        cb_l.addWidget(font_row)
         form.addRow(codes_box)
 
         self.filter_english = QCheckBox("Ukrywaj wpisy nieprzetłumaczone (tłumaczenie ≈ źródło)")

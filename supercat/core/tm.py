@@ -186,6 +186,9 @@ def _adapt_to_segment(source: str, target: str) -> str:
             extra_codes=_esc, auto_detect=not (_esc or _inl))
         out = adapt_codes(source, out, line_codes, para_codes,
                           smart=sm.get_bool("tm.adapt.codes.smart", True))
+        if sm.get_bool("tm.adapt.long.lines", True):
+            from .tags import ensure_line_widths
+            out = ensure_line_widths(source, out, line_codes, para_codes)
     return out
 
 
@@ -825,6 +828,31 @@ class TranslationMemory:
                 self._index.add(source.strip(), target.strip())
             # cache uzupełni się przyrostowo przy następnym wyszukiwaniu
 
+    @staticmethod
+    def adapt_case_to_source(src_text: str, tgt_text: str) -> str:
+        """Dopasowuje WIELKOŚĆ LITER tłumaczenia do oryginału.
+
+        Oryginał małe litery → tłumaczenie małymi; wielkie (CAŁE SŁOWO) →
+        tłumaczenie wielkimi; wielka pierwsza → wielka pierwsza. Dzięki temu
+        fragment z TM („ABILITY” → „ZDOLNOŚ”) wsiada do segmentu „No special
+        ability.” jako „zdolność”, a nie „ZDOLNOŚ”.
+        """
+        src_letters = [c for c in (src_text or "") if c.isalpha()]
+        tgt_letters = [c for c in (tgt_text or "") if c.isalpha()]
+        if not src_letters or not tgt_letters:
+            return tgt_text
+        if all(c.isupper() for c in src_letters):
+            return (tgt_text or "").upper()
+        if all(c.islower() for c in src_letters):
+            return (tgt_text or "").lower()
+        # wielka pierwsza + reszta małe i JEDNO słowo: „Ability” → „Zdolność”.
+        # Mieszany wielkość liter (nazwy własne!) zostaje nietknięty.
+        words = (src_text or "").split()
+        if len(words) == 1 and len(src_letters) > 1 and src_letters[0].isupper() \
+                and all(c.islower() for c in src_letters[1:]):
+            return (tgt_text or "")[:1].upper() + (tgt_text or "")[1:].lower()
+        return tgt_text
+
     def find_sentence_matches(self, segment: str, limit: int = 25,
                               should_cancel: Optional[Callable[[], bool]] = None) -> List[SentenceMatch]:
         """Dopasowanie rozbitych zdań – odpowiednik `findSentenceMatches` z repo `5`.
@@ -855,9 +883,24 @@ class TranslationMemory:
         # dokładnie ten wycinek oryginału, zachowując oryginalne znaczniki.
         flat, flat_to_orig = _flatten_with_map(haystack)
         filter_untranslated = SettingsManager.instance().get_bool("tm.filter.english", True)
+        from .tags import DEFAULT_LINE_BREAKS, DEFAULT_PARA_BREAKS, parse_break_codes
+        _line_codes = parse_break_codes(
+            settings.get_str("tm.adapt.line.codes", "\\n \\l"), DEFAULT_LINE_BREAKS)
+        _para_codes = parse_break_codes(
+            settings.get_str("tm.adapt.para.codes", "\\p"), DEFAULT_PARA_BREAKS)
+
+        def _wrap(assembled: str) -> str:
+            if assembled is None:
+                return assembled
+            if not settings.get_bool("tm.adapt.long.lines", True):
+                return assembled
+            from .tags import ensure_line_widths
+
+            return ensure_line_widths(haystack, assembled, _line_codes, _para_codes)
 
         # 1) zbierz wszystkie fragmenty TM występujące w segmencie (z pozycjami)
         hits: List[Tuple[int, int, str, str]] = []  # (start, end, source, target)
+        span_best: dict[Tuple[int, int], Tuple[int, int, str]] = {}
         seen: set[str] = set()
         if should_cancel is not None and should_cancel():
             return []
@@ -894,6 +937,15 @@ class TranslationMemory:
             # przelicz pozycje z tekstu spłaszczonego na oryginalny
             orig_start = flat_to_orig[start]
             orig_end = flat_to_orig[start + len(needle) - 1] + 1
+            # To samo miejsce w segmencie może mieć kilka wpisów TM („Wild →
+            # Dziki” i „WILD → Wrog”) — zostawiamy jedno (dłuższe), bo reszta
+            # to dla tłumacza szum zamiast pomocy.
+            span_key = (orig_start, orig_end)
+            if span_key in span_best:
+                if len(db_target) <= len(span_best[span_key][2]):
+                    continue
+                hits = [h for h in hits if (h[0], h[1]) != span_key]
+            span_best[span_key] = (orig_start, orig_end, db_target)
             hits.append((orig_start, orig_end, db_source, db_target))
 
         # 1b) dopasowanie LINIA PO LINII – wpis TM obejmujący kilka linii
@@ -922,10 +974,17 @@ class TranslationMemory:
                 if signature in seen_line_pairs:
                     continue
                 seen_line_pairs.add(signature)
-                assembled = _replace_flat_span(haystack, flat, flat_to_orig, db_flat, db_target)
+                k = flat.find(db_flat)
+                shown_target = db_target
+                if k >= 0:
+                    orig_s = flat_to_orig[k]
+                    orig_e = flat_to_orig[k + len(db_flat) - 1] + 1
+                    shown_target = self.adapt_case_to_source(
+                        haystack[orig_s:orig_e], db_target)
+                assembled = _replace_flat_span(haystack, flat, flat_to_orig, db_flat, shown_target)
                 coverage = int(round(len(db_flat) * 100 / max(len(flat), 1)))
                 line_matches.append(
-                    SentenceMatch(db_source, db_target, assembled or haystack, coverage,
+                    SentenceMatch(db_source, db_target, _wrap(assembled) or haystack, coverage,
                                   line_pairs=pairs, kind="linia")
                 )
 
@@ -960,13 +1019,15 @@ class TranslationMemory:
                 seen_sub.add(db_target)
                 coverage = int(round(len(flat) * 100 / max(len(db_flat), 1)))
                 if best_line is not None:
+                    shown = self.adapt_case_to_source(haystack, best_line[1])
                     line_matches.append(
-                        SentenceMatch(best_line[0], best_line[1], best_line[1], coverage,
+                        SentenceMatch(best_line[0], best_line[1], _wrap(shown), coverage,
                                       line_pairs=pairs, kind="linia z dłuższego wpisu")
                     )
                 else:
+                    shown = self.adapt_case_to_source(haystack, db_target)
                     line_matches.append(
-                        SentenceMatch(db_source, db_target, db_target, coverage,
+                        SentenceMatch(db_source, db_target, _wrap(shown), coverage,
                                       line_pairs=pairs, kind="segment w dłuższym wpisie")
                     )
                 if len(line_matches) >= limit:
@@ -985,7 +1046,8 @@ class TranslationMemory:
 
         found: List[SentenceMatch] = []
         for start, end, db_source, db_target in hits:
-            assembled = haystack[:start] + db_target + haystack[end:]
+            shown_target = self.adapt_case_to_source(haystack[start:end], db_target)
+            assembled = _wrap(haystack[:start] + shown_target + haystack[end:])
             coverage = int(round((end - start) * 100 / max(len(haystack), 1)))
             found.append(SentenceMatch(db_source, db_target, assembled, coverage))
         found.sort(key=lambda m: -m.coverage)
@@ -1000,18 +1062,25 @@ class TranslationMemory:
             if len(chosen) > 1:
                 combined = haystack
                 covered = 0
-                for start, end, _src, tgt in sorted(chosen, key=lambda h: -h[0]):
-                    combined = combined[:start] + tgt + combined[end:]
+                parts_src: List[str] = []
+                parts_tgt: List[str] = []
+                for start, end, src, tgt in sorted(chosen, key=lambda h: -h[0]):
+                    shown_tgt = self.adapt_case_to_source(haystack[start:end], tgt)
+                    combined = combined[:start] + shown_tgt + combined[end:]
                     covered += end - start
+                    parts_src.append(src)
+                    parts_tgt.append(shown_tgt)
                 coverage = int(round(covered * 100 / max(len(haystack), 1)))
+                partial = (len(haystack) - covered) > 1
                 found.insert(
                     0,
                     SentenceMatch(
-                        " + ".join(c[2] for c in sorted(chosen, key=lambda h: h[0])),
-                        " + ".join(c[3] for c in sorted(chosen, key=lambda h: h[0])),
-                        combined,
+                        " + ".join(parts_src),
+                        " + ".join(parts_tgt),
+                        _wrap(combined),
                         coverage,
                         kind="złożenie",
+                        partial=partial,
                     ),
                 )
 
@@ -1204,7 +1273,10 @@ class TranslationMemory:
             seen.add(signature)
             # Złożenie = CAŁY segment z podstawioną linią. Wcześniej wstawiało
             # się samo tłumaczenie linii, przez co „całość” gubiła resztę tekstu.
-            assembled = _replace_line_in_segment(segment, seg_line, tgt_line)
+            # Wielkość liter dopasowujemy do linii oryginału (TM trzyma np.
+            # „ABILITY → ZDOLNOŚ”, a segment ma „ability”).
+            shown_line = self.adapt_case_to_source(seg_line, tgt_line)
+            assembled = _replace_line_in_segment(segment, seg_line, shown_line)
             coverage = int(round(len(seg_line) * 100 / max(len(segment), 1)))
             # Gdy dopasowaliśmy wpis wielolinijkowy, pokaż też rozbicie
             # linia po linii – łatwiej wtedy przenieść tłumaczenie kawałkami.

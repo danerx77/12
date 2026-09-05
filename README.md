@@ -22,7 +22,7 @@ Jedno okno, siedem zakładek (jak w Supervertaler Workbench):
 | Zakładka | Zawartość |
 |---|---|
 | 🤖 **AI** | dziennik pracy modelu, podgląd polecenia, wytyczne, test tłumaczenia |
-| 📝 **Edytor** | lista plików **z licznikiem postępu na bieżąco** (`plik.txt (91/1000 • 9%)`, ✅ przy ukończonych) • siatka segmentów • edytor źródło/cel • panele: dopasowania TM, **dopasowanie zdań**, terminy, konkordancja, MT, notatki |
+| 📝 **Edytor** | lista plików **z licznikiem postępu na bieżąco** (`plik.txt (91/1000 • 9%)`, ✅ przy ukończonych) **+ własne znaczniki plików** (✓ sprawdzone / ⚠️ uwaga / ✗ problem, klik prawym) • siatka segmentów • edytor źródło/cel • **wszystkie panele po prawej widoczne na raz** (TM, dopasowanie zdań, terminy, konkordancja, MT, język, notatki — bez przełączania zakładek) **+ regulacja czcionki** tych paneli |
 | 💾 **Pamięć TM** | **Lista pamięci** (baza projektu, pliki TMX z folderu `tm/` oraz pamięci zaimportowane z innych lokalizacji) oraz **Przeglądaj i edytuj** – edycja wpisów dwuklikiem bezpośrednio w tabeli, import/eksport TMX |
 | 🏷️ **Glosariusz** | termbaza projektu, import/eksport CSV |
 | 📖 **Słowniki** | słowniki Hunspell/txt, sprawdzanie pisowni |
@@ -673,7 +673,7 @@ Zakładka *Ustawienia → **💾 Pamięć TM*** ma teraz jasne nazwy i komplet w
 
 | Grupa | Przełączniki |
 |---|---|
-| **🔍 Podpowiedzi z pamięci TM** | **włącz/wyłącz podpowiedzi** (nowe) • próg dopasowania • liczba wyników • zapis do TMX • dopasowywanie tagów • **dopasowanie przełań (\n, \p) do oryginału** (nowe) • **auto-detekcja kodów gry z tekstu + wklejona lista kodów** (nowe) • ukrywanie wpisów nieprzetłumaczonych |
+| **🔍 Podpowiedzi z pamięci TM** | **włącz/wyłącz podpowiedzi** (nowe) • próg dopasowania • liczba wyników • zapis do TMX • dopasowywanie tagów • **dopasowanie przełań (\n, \p) do oryginału** (nowe) • **auto-detekcja kodów gry z tekstu + wklejona lista kodów** (nowe) • **wielkość liter fragmentów wg oryginału + kody dla za długiego tłumaczenia** (nowe) • ukrywanie wpisów nieprzetłumaczonych |
 | **🔗 Dopasowanie zdań** | składanie z fragmentów • minimalne podobieństwo • wyłączenie przy dużej pamięci • szukanie w segmentach projektu • automatyczne wstawianie złożenia |
 | **✍️ Automatyczne wstawianie** | wstawianie do pustego segmentu • **nadpisywanie istniejącego tłumaczenia** (nowe) • **zapis zatwierdzonego segmentu do TM** (nowe) |
 | **⚡ Automatyka po wczytaniu plików** | uzupełnianie z TM • tłumaczenie maszynowe reszty • pytanie o zgodę |
@@ -804,6 +804,15 @@ podpowiedź po dopasowaniu:
   wczytywaniu pliku program kurczy parzyste serie backslashów przed literą
   do jednego, więc kody są rozpoznawane, dopasowywane i zapisywane
   w prawidłowej postaci.
+* **wielkość liter fragmentów z TM** — fragment podstawiany z pamięci
+  dostaje wielkość liter z oryginału: „No special **ability**.” + wpis TM
+  „ABILITY → ZDOLNOŚĆ” daje „zdolność”, nie „ZDOLNOŚĆ” (CAŁE SŁOWO w
+  oryginale → wielkie litery; pojedyncze słowo z wielką pierwszą → wielka
+  pierwsza). Mieszane wielkości (nazwy własne) nie są ruszane.
+* **kody dla za długiego tłumaczenia** (włączane osobno, domyślnie ON) —
+  oryginał bez przełamań, a tłumaczenie mu wyrosło? Program dokleja `\n`
+  przy spacji tak, by każda linia mieściła się w szerokości oryginału
+  (w grze za długi wiersz nie wyświetli się w całości).
 
 Do segmentów, które już przetłumaczono, służy działanie w siatce: **klik
 prawy → „⇢ Dopasuj znaczniki do oryginału”** (działa na wszystkich

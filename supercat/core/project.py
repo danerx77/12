@@ -109,6 +109,8 @@ class Project:
     segmentation: SegmentationSettings = field(default_factory=SegmentationSettings)
     #: Reguły wykluczania segmentów z tłumaczenia (zapisywane w .scproj)
     exclusions: Dict[str, Any] = field(default_factory=dict)
+    #: Własne znaczniki plików (nazwa pliku -> "ok"/"warn"/"bad")
+    file_markers: Dict[str, str] = field(default_factory=dict)
     tm: TMSettings = field(default_factory=TMSettings)
     mt: MTSettings = field(default_factory=MTSettings)
     glossary: GlossarySettings = field(default_factory=GlossarySettings)

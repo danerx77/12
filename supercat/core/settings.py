@@ -33,6 +33,12 @@ DEFAULTS: Dict[str, Any] = {
     #: Poprawiaj podwójne backslashy przed kodami (\\n -> \n)
     # przy wczytywaniu plików.
     "tm.codes.fix.double": True,
+    #: Doklejaj kod wiersza, gdy tłumaczenie jest dłuższe niż
+    # najdłuższa linia oryginału (oryginał bez kodów).
+    "tm.adapt.long.lines": True,
+    #: Wielkość czcionki paneli po prawej (TM / zdania / terminy);
+    # 0 = czcionka domyślna aplikacji.
+    "tm.panel.font.size": 0,
     "tm.filter.english": True,
     #: Nie zapisuj do TM wpisów, których tłumaczenie zostało po angielsku.
     "tm.reject.untranslated": False,

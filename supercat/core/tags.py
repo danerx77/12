@@ -177,6 +177,46 @@ _VAR_CODE_RE = re.compile(r"\{[A-Za-z0-9_]+\}")
 _TAG_CODE_RE = re.compile(r"<<[A-Za-z0-9_ ]+>>")
 
 
+def ensure_line_widths(source: str | None, target: str | None,
+                       line_breaks: Sequence[str] | None = None,
+                       para_breaks: Sequence[str] | None = None) -> str:
+    """Dokleja kody wiersza, gdy tłumaczenie jest dłuższe niż oryginał.
+
+    Dotyczy segmentów, w których ORYGINAL nie ma kodów (jedna linia), a
+    tłumaczenie wyrosło ponad najdłuższą linię oryginału — wtedy łamiemy
+    przy spacji tak, by każda linia mieściła się w tej szerokości (w grze
+    za długi wiersz nie wyjdzie w całości). Tłumaczenia z kodami albo krótkie
+    zostają nietknięte.
+    """
+    if not source or not target:
+        return target or ""
+    src_paras = split_code_structure(source, line_breaks, para_breaks)
+    if any(len(par) > 1 for par in src_paras):
+        return target              # oryginał ma kody — adapt_codes się tym zajmuje
+    allowed = max((len(line) for line, _c in src_paras[0]), default=len(source))
+    if not allowed:
+        return target
+    tgt_paras = split_code_structure(target, line_breaks, para_breaks)
+    if any(len(par) > 1 for par in tgt_paras):
+        return target              # tłumaczenie już ma kody — nie ruszamy
+    lead, core, trail = split_edges(target)
+    if allowed < 12 or len(core) <= allowed + 2:
+        return target              # za krótko / mieści się (z zapasem 2 znaki)
+    out: List[str] = []
+    cur = ""
+    for word in core.split(" "):
+        candidate = f"{cur} {word}" if cur else word
+        if not cur or len(candidate) <= allowed:
+            cur = candidate
+        else:
+            out.append(cur)
+            cur = word
+    if cur:
+        out.append(cur)
+    code = line_breaks[0] if line_breaks else DEFAULT_LINE_BREAKS[0]
+    return lead + code.join(out) + trail
+
+
 def detect_codes(text: str | None) -> Dict[str, int]:
     """Rozpoznaje kody w tekście i zwraca ``{kod: ile razy}``.
 

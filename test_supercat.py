@@ -4254,6 +4254,89 @@ Dziękujemy za korzystanie z MYSTERY"""
           w.settings_tab.adapt_codes_smart.isChecked()
           and w.settings_tab.fix_double_bs.isChecked())
 
+    # --- dopasowanie wielkości liter + kody za długi tekst + znaczniki plików ---
+    print("\n24i. Wielkość liter fragmentów, kody dla długiego tekstu, znaczniki plików, panel")
+    from supercat.core.tm import TranslationMemory as _TMCase
+    assert _TMCase.adapt_case_to_source("ability", "ZDOLNOŚ") == "zdolnoś"
+    assert _TMCase.adapt_case_to_source("ABILITY", "zdolność") == "ZDOLNOŚĆ"
+    assert _TMCase.adapt_case_to_source("Ability", "ZDOLNOŚĆ") == "Zdolność"
+    check("case: fragment z TM dostaje wielkość liter oryginału",
+          _TMCase.adapt_case_to_source("ability", "ZDOLNOŚ") == "zdolnoś")
+
+    # end-to-end: dopasowanie zdań — "ABILITY → ZDOLNOŚ" w TM, "ability" w segmencie
+    _prev_sm = smgr2.get_bool("tm.sentence.matching.enabled", False)
+    smgr2.set("tm.sentence.matching.enabled", True)
+    sm_gr_dir = os.path.join(tmp, "tm_case")
+    os.makedirs(sm_gr_dir, exist_ok=True)
+    tmg = TranslationMemory()
+    tmg.init_for_project(sm_gr_dir)
+    tmg.add("ABILITY", "ZDOLNOŚ", "en", "pl")
+    hits_case = tmg.find_sentence_matches("No special ability.")
+    ok_case = [m for m in hits_case if "zdolno" in m.assembled.lower()]
+    check("zdania: „No special ability.” + TM(ABILITY→ZDOLNOŚ) → małe litery",
+          any(m.assembled == "No special zdolnoś." for m in hits_case),
+          [m.assembled for m in hits_case][:3])
+
+    # kody: tłumaczenie dłuższe niż oryginał dostaje \n
+    _prev_ll = smgr2.get_bool("tm.adapt.long.lines", True)
+    smgr2.set("tm.adapt.long.lines", True)
+    tmll_dir = os.path.join(tmp, "tm_long")
+    os.makedirs(tmll_dir, exist_ok=True)
+    tml = TranslationMemory()
+    tml.init_for_project(tmll_dir)
+    _src_l = "Short original line here."
+    _tgt_l = "Bardzo długie tłumaczenie które nie zmieści się w jednej linii tego oryginału"
+    tml.add(_src_l, _tgt_l, "en", "pl")
+    hits_l = tml.find_fuzzy_matches(_src_l, 70, 5)
+    check("długi tekst: podpowiedź TM dostaje kod \\n",
+          bool(hits_l) and hits_l[0].text.count("\\n") >= 1,
+          repr(hits_l[0].text) if hits_l else "")
+    smgr2.set("tm.adapt.long.lines", False)
+    hits_l2 = tml.find_fuzzy_matches(_src_l, 70, 5)
+    check("długi tekst: opcja wyłączona → bez kodu",
+          bool(hits_l2) and "\\n" not in hits_l2[0].text,
+          repr(hits_l2[0].text) if hits_l2 else "")
+    smgr2.set("tm.adapt.long.lines", _prev_ll)
+
+    # dedup: dwa wpisy TM na to samo miejsce → jedna podpowiedź
+    tm_dup_dir = os.path.join(tmp, "tm_dup")
+    os.makedirs(tm_dup_dir, exist_ok=True)
+    tmd = TranslationMemory()
+    tmd.init_for_project(tm_dup_dir)
+    tmd.add("Wild", "Dziki", "en", "pl")
+    tmd.add("WILD", "Wrog", "en", "pl")
+    hits_d = tmd.find_sentence_matches("Helps repel wild POKEMON.")
+    wild_frags = [m for m in hits_d if m.fragment_source.lower() in ("wild", "wild")]
+    check("zdania: dwa wpisy na ten sam fragment → jedna podpowiedź",
+          len(wild_frags) <= 1,
+          [(m.fragment_source, m.assembled) for m in hits_d][:5])
+    smgr2.set("tm.sentence.matching.enabled", _prev_sm)
+
+    # pliki: własne znaczniki (✓/⚠️/✗) i przeżycie zapisu
+    from supercat.core.project import Project as _Proj
+    _p = _Proj(name="X")
+    _p.file_markers["a.txt"] = "ok"
+    _p2 = _Proj.from_dict(_p.to_dict())
+    check("pliki: znacznik przechodzi przez zapis projektu",
+          _p2.file_markers.get("a.txt") == "ok", str(_p2.file_markers))
+    from supercat.ui.editor_tab import EditorTab as _ET24
+    check("pliki: etykieta z ✓ dla sprawdzonego pliku",
+          "✓" in _ET24._file_label("a.txt", 3, 3, 0, "ok"))
+
+    # UI: panel prawy bez zakładek + czcionka + opcje
+    check("panel: wszystko widoczne (scroll, nie zakładki)",
+          hasattr(w.editor_tab, "apply_panel_font"))
+    check("ustawienia: czcionka paneli + opcja długich linii",
+          hasattr(w.settings_tab, "panel_font_size")
+          and hasattr(w.settings_tab, "fix_long_lines"))
+    w.settings_tab.panel_font_size.setValue(14)
+    w.editor_tab.apply_panel_font()
+    check("czcionka: zmiana trafia do paneli TM",
+          w.editor_tab.matches_list.font().pointSize() == 14,
+          str(w.editor_tab.matches_list.font().pointSize()))
+    w.settings_tab.panel_font_size.setValue(0)
+    w.editor_tab.apply_panel_font()
+
     # ---------------------------- Nawigacja klawiszami
     print("\n24b. Strzałki i zaznaczanie w siatce")
     from PyQt6.QtTest import QTest as _QTest

@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QHeaderView, QLabel,
     QApplication, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
     QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit,
-    QProgressBar,
+    QGroupBox, QProgressBar, QScrollArea,
     QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QToolButton, QVBoxLayout,
     QWidget,
 )
@@ -706,12 +706,30 @@ class EditorTab(QWidget):
         self.center_splitter = center
 
         # --- prawy panel: pomoc tłumacza --------------------------------
-        right = QTabWidget()
+        # Wszystko WIDOCZNE NA RAZ (boxy pod spodem, całość przewijalna) —
+        # bez przełączania zakładek: dopasowania TM, zdania, terminy itd.
+        # są pod ręką.
+        right = QScrollArea()
+        right.setWidgetResizable(True)
+        right.setFrameShape(QFrame.Shape.NoFrame)
+        right_inner = QWidget()
+        right_layout = QVBoxLayout(right_inner)
+        right_layout.setContentsMargins(0, 0, 2, 0)
+        right_layout.setSpacing(6)
+        right.setWidget(right_inner)
+
+        def _right_group(title: str, content: QWidget) -> None:
+            grp = QGroupBox(title)
+            gl = QVBoxLayout(grp)
+            gl.setContentsMargins(6, 4, 6, 6)
+            gl.addWidget(content)
+            right_layout.addWidget(grp)
 
         self.matches_list = QListWidget()
         self.matches_list.setWordWrap(True)
         self.matches_list.setTextElideMode(Qt.TextElideMode.ElideNone)
         self.matches_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.matches_list.setFixedHeight(190)
         self.matches_list.itemDoubleClicked.connect(self._insert_match)
         matches_box = QWidget()
         mb_layout = QVBoxLayout(matches_box)
@@ -722,13 +740,14 @@ class EditorTab(QWidget):
         insert_btn = QPushButton("⤵ Wstaw zaznaczone dopasowanie (Ctrl+Spacja)")
         insert_btn.clicked.connect(self._insert_selected_match)
         mb_layout.addWidget(insert_btn)
-        right.addTab(matches_box, "💡 Dopasowania TM")
+        _right_group("💡 Dopasowania TM", matches_box)
 
         # Dopasowanie zdań (fragmenty) – odpowiednik SentenceMatchingPanel z repo `5`
         self.sentence_list = QListWidget()
         self.sentence_list.setWordWrap(True)
         self.sentence_list.setTextElideMode(Qt.TextElideMode.ElideNone)
         self.sentence_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.sentence_list.setFixedHeight(190)
         self.sentence_list.itemDoubleClicked.connect(self._insert_sentence_match)
         sentence_box = QWidget()
         sb_layout = QVBoxLayout(sentence_box)
@@ -757,9 +776,10 @@ class EditorTab(QWidget):
         hint.setWordWrap(True)
         hint.setStyleSheet("color: gray; font-size: 11px;")
         sb_layout.addWidget(hint)
-        right.addTab(sentence_box, "🔗 Dopasowanie zdań")
+        _right_group("🔗 Dopasowanie zdań", sentence_box)
 
         self.terms_list = QListWidget()
+        self.terms_list.setFixedHeight(110)
         self.terms_list.itemDoubleClicked.connect(self._insert_term)
         terms_box = QWidget()
         tb_layout = QVBoxLayout(terms_box)
@@ -769,9 +789,10 @@ class EditorTab(QWidget):
         add_term_btn = QPushButton("➕ Dodaj zaznaczenie do glosariusza")
         add_term_btn.clicked.connect(self._add_selection_to_glossary)
         tb_layout.addWidget(add_term_btn)
-        right.addTab(terms_box, "🏷️ Terminy")
+        _right_group("🏷️ Terminy", terms_box)
 
         self.concordance_list = QListWidget()
+        self.concordance_list.setFixedHeight(110)
         conc_box = QWidget()
         cb_layout = QVBoxLayout(conc_box)
         cb_layout.setContentsMargins(4, 4, 4, 4)
@@ -785,9 +806,10 @@ class EditorTab(QWidget):
         conc_row.addWidget(conc_btn)
         cb_layout.addLayout(conc_row)
         cb_layout.addWidget(self.concordance_list)
-        right.addTab(conc_box, "🔍 Konkordancja")
+        _right_group("🔍 Konkordancja", conc_box)
 
         self.mt_view = QPlainTextEdit()
+        self.mt_view.setFixedHeight(110)
         self.mt_view.setReadOnly(True)
         mt_box = QWidget()
         mt_layout = QVBoxLayout(mt_box)
@@ -806,10 +828,11 @@ class EditorTab(QWidget):
         mt_row.addWidget(quick_btn)
         mt_row.addWidget(use_btn)
         mt_layout.addLayout(mt_row)
-        right.addTab(mt_box, "🤖 MT")
+        _right_group("🤖 MT", mt_box)
 
         # --- panel kontroli języka (tylko tłumaczenie) -------------------
         self.lang_list = QListWidget()
+        self.lang_list.setFixedHeight(100)
         self.lang_list.setWordWrap(True)
         self.lang_list.itemDoubleClicked.connect(self._apply_lang_suggestion)
         lang_box = QWidget()
@@ -849,12 +872,15 @@ class EditorTab(QWidget):
         lang_btns.addWidget(check_now)
         lang_btns.addWidget(fix_btn)
         lang_layout.addLayout(lang_btns)
-        right.addTab(lang_box, "🔤 Język")
+        _right_group("🔤 Język", lang_box)
 
         self.notes_edit = QPlainTextEdit()
+        self.notes_edit.setFixedHeight(100)
         self.notes_edit.setPlaceholderText("Notatki do segmentu…")
         self.notes_edit.textChanged.connect(self._on_notes_changed)
-        right.addTab(self.notes_edit, "📝 Notatki")
+        _right_group("📝 Notatki", self.notes_edit)
+        right_layout.addStretch(1)
+        self.apply_panel_font()
 
         splitter.addWidget(left)
         splitter.addWidget(center)
@@ -1040,6 +1066,31 @@ class EditorTab(QWidget):
             self.target_edit.clear()
         self.update_progress()
 
+    def _set_file_marker(self, name: str, marker: str) -> None:
+        """Ustawia własny znacznik pliku (✓ sprawdzone / ⚠️ uwaga / ✗ problem)."""
+        proj = getattr(self.app, "project", None)
+        if proj is None or getattr(proj, "file_markers", None) is None:
+            return
+        if marker:
+            proj.file_markers[name] = marker
+        else:
+            proj.file_markers.pop(name, None)
+        self.app.project_manager.save_project()
+        self.update_file_counters()
+
+    def apply_panel_font(self) -> None:
+        """Wielkość czcionki paneli po prawej (TM / zdania / terminy / konkordancja).
+
+        Ustawienie ``tm.panel.font.size``; 0 = czcionka domyślna aplikacji.
+        """
+        size = SettingsManager.instance().get_int("tm.panel.font.size", 0)
+        f = self.font()
+        if size > 0:
+            f.setPointSize(size)
+        for w in (self.matches_list, self.sentence_list, self.terms_list,
+                  self.concordance_list):
+            w.setFont(f)
+
     def _file_counters(self) -> "dict[str, tuple[int, int, int]]":
         """Zlicza (przetłumaczone, do zrobienia, pominięte) dla każdego pliku.
 
@@ -1059,13 +1110,17 @@ class EditorTab(QWidget):
         return {name: (done, total, skipped)
                 for name, (done, total, skipped) in counters.items()}
 
+    FILE_MARKER_SYMBOLS = {"ok": "✓", "warn": "⚠️", "bad": "✗"}
+
     @staticmethod
-    def _file_label(name: str, done: int, total: int, skipped: int = 0) -> str:
+    def _file_label(name: str, done: int, total: int, skipped: int = 0,
+                    marker: str = "") -> str:
         # Pominięte wypadają z licznika – same liczby wystarczą, bez dodatkowych
         # oznaczeń, żeby lista plików pozostała czytelna.
         percent = int(done * 100 / total) if total else 0
         mark = "✅" if total and done == total else "📄"
-        return f"{mark} {name}  ({done}/{total} • {percent}%)"
+        msym = EditorTab.FILE_MARKER_SYMBOLS.get(marker, "")
+        return f"{msym} {mark} {name}  ({done}/{total} • {percent}%)".strip()
 
     def refresh_files_list(self) -> None:
         """Buduje listę plików od nowa (po imporcie / usunięciu pliku)."""
@@ -1090,9 +1145,11 @@ class EditorTab(QWidget):
             names = order_files(sorted(counters), preferred)
         else:
             names = sorted(counters)
+        markers = (getattr(project, "file_markers", None) or {}) if project else {}
         for name in names:
             done, total, skipped = counters[name]
-            it = QListWidgetItem(self._file_label(name, done, total, skipped))
+            it = QListWidgetItem(
+                self._file_label(name, done, total, skipped, markers.get(name, "")))
             it.setData(Qt.ItemDataRole.UserRole, name)
             self.files_list.addItem(it)
             if name == selected:
@@ -1125,6 +1182,8 @@ class EditorTab(QWidget):
         total_done = sum(done for done, _t, _s in counters.values())
         total_todo = sum(total for _d, total, _s in counters.values())
         total_skip = sum(skipped for _d, _t, skipped in counters.values())
+        project = getattr(self.app, "project", None)
+        markers = (getattr(project, "file_markers", None) or {}) if project else {}
         for row in range(self.files_list.count()):
             item = self.files_list.item(row)
             name = item.data(Qt.ItemDataRole.UserRole)
@@ -1132,7 +1191,8 @@ class EditorTab(QWidget):
                 text = self._all_files_label(total_done, total_todo, total_skip)
             else:
                 done, total, skipped = counters.get(name, (0, 0, 0))
-                text = self._file_label(name, done, total, skipped)
+                text = self._file_label(name, done, total, skipped,
+                                        markers.get(name, ""))
             if item.text() != text:            # bez zbędnego przerysowania
                 item.setText(text)
 
@@ -1271,6 +1331,19 @@ class EditorTab(QWidget):
         act_find = menu.addAction(f"🔍 Szukaj w „{label}”…")
         act_stats = menu.addAction("📊 Statystyki pliku")
         menu.addSeparator()
+        if file_name:
+            proj = getattr(self.app, "project", None)
+            if proj is not None and getattr(proj, "file_markers", None) is not None:
+                cur = proj.file_markers.get(file_name, "")
+                for key, title in (("", "🏷️ Znacznik: brak"),
+                                   ("ok", "🏷️ Znacznik: ✓ sprawdzone"),
+                                   ("warn", "🏷️ Znacznik: ⚠️ uwaga"),
+                                   ("bad", "🏷️ Znacznik: ✗ problem")):
+                    act_mk = menu.addAction(
+                        ("✓ " if cur == key else "   ") + title)
+                    act_mk.triggered.connect(
+                        lambda _c, k=key, n=file_name: self._set_file_marker(n, k))
+                menu.addSeparator()
         act_add = menu.addAction("➕ Dodaj pliki…")
         selected = self.selected_file_names()
         if len(selected) > 1:
@@ -2448,7 +2521,10 @@ class EditorTab(QWidget):
                 seg.source, _line, _para,
                 extra_codes=_esc, auto_detect=not (_esc or _inl))
             new_text = adapt_codes(seg.source, seg.target, _line, _para,
-                                 smart=_sm_codes.get_bool("tm.adapt.codes.smart", True))
+                                   smart=_sm_codes.get_bool("tm.adapt.codes.smart", True))
+            if _sm_codes.get_bool("tm.adapt.long.lines", True):
+                from ..core.tags import ensure_line_widths
+                new_text = ensure_line_widths(seg.source, new_text, _line, _para)
             if new_text != seg.target:
                 history.append((index, "target", seg.target))
                 seg.target = new_text
