@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QHeaderView, QLabel,
     QApplication, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
     QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit,
-    QGroupBox, QProgressBar, QScrollArea,
+    QGroupBox, QGridLayout, QProgressBar, QScrollArea,
     QPushButton, QSizePolicy, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QToolButton, QVBoxLayout,
     QWidget,
 )
@@ -896,12 +896,14 @@ class EditorTab(QWidget):
         mb_layout.setContentsMargins(4, 4, 4, 4)
         self.matches_info = QLabel("Dopasowania z pamięci tłumaczeń")
         self.matches_info.setWordWrap(True)
+        self.matches_info.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         mb_layout.addWidget(self.matches_info)
         mb_layout.addWidget(self.matches_list, 1)
-        insert_btn = QPushButton("⤵ Wstaw zaznaczone dopasowanie")
+        insert_btn = QPushButton("⤵ Wstaw zaznaczone\ndopasowanie")
         from ..core import shortcuts as _sc_ins
         insert_btn.setToolTip(_sc_ins.with_shortcut("insert_match", "Wstaw zaznaczone dopasowanie"))
-        insert_btn.setMinimumHeight(28)
+        insert_btn.setMinimumHeight(40)
+        insert_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         insert_btn.clicked.connect(self._insert_selected_match)
         mb_layout.addWidget(insert_btn)
         _right_panel("💡 Dopasowania TM", matches_box, "matches")
@@ -918,6 +920,7 @@ class EditorTab(QWidget):
         sb_layout = QVBoxLayout(sentence_box)
         sb_layout.setContentsMargins(4, 4, 4, 4)
         self.sentence_toggle = QCheckBox("Włącz dopasowanie zdań")
+        self.sentence_toggle.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         self.sentence_toggle.setToolTip(
             "Szuka w pamięci fragmentów i linii bieżącego segmentu.\n"
             "Przy bardzo dużych pamięciach bywa kosztowne – można wyłączyć."
@@ -930,10 +933,12 @@ class EditorTab(QWidget):
 
         self.sentence_info = QLabel("Fragmenty zdań znalezione w TM")
         self.sentence_info.setWordWrap(True)
+        self.sentence_info.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         sb_layout.addWidget(self.sentence_info)
         sb_layout.addWidget(self.sentence_list, 1)
         sent_btn = QPushButton("⤵ Wstaw złożone tłumaczenie")
-        sent_btn.setMinimumHeight(28)
+        sent_btn.setMinimumHeight(36)
+        sent_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         sent_btn.clicked.connect(self._insert_selected_sentence_match)
         sb_layout.addWidget(sent_btn)
         hint = QLabel(
@@ -941,6 +946,7 @@ class EditorTab(QWidget):
             "fragmentów i podstawia ich tłumaczenia w zdaniu."
         )
         hint.setWordWrap(True)
+        hint.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         hint.setStyleSheet("color: gray; font-size: 11px;")
         sb_layout.addWidget(hint)
         _right_panel("🔗 Dopasowanie zdań", sentence_box, "sentences")
@@ -957,9 +963,13 @@ class EditorTab(QWidget):
         tb_layout.setContentsMargins(4, 4, 4, 4)
         terms_hint = QLabel("Terminy znalezione w segmencie (2× klik = wstaw)")
         terms_hint.setWordWrap(True)
+        terms_hint.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         tb_layout.addWidget(terms_hint)
         tb_layout.addWidget(self.terms_list, 1)
-        add_term_btn = QPushButton("➕ Dodaj zaznaczenie do glosariusza")
+        add_term_btn = QPushButton("➕ Dodaj zaznaczenie\ndo glosariusza")
+        add_term_btn.setToolTip("Dodaj zaznaczenie do glosariusza")
+        add_term_btn.setMinimumHeight(40)
+        add_term_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         add_term_btn.clicked.connect(self._add_selection_to_glossary)
         tb_layout.addWidget(add_term_btn)
         _right_panel("🏷️ Terminy", terms_box, "terms")
@@ -994,20 +1004,29 @@ class EditorTab(QWidget):
         mt_layout.setContentsMargins(4, 4, 4, 4)
         mt_caption = QLabel("Propozycja tłumaczenia maszynowego")
         mt_caption.setWordWrap(True)
+        mt_caption.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         mt_layout.addWidget(mt_caption)
         mt_layout.addWidget(self.mt_view, 1)
-        mt_row = QHBoxLayout()
+        mt_row = QGridLayout()
+        mt_row.setContentsMargins(0, 0, 0, 0)
+        mt_row.setSpacing(6)
         gen_btn = QPushButton("🤖 Generuj")
+        gen_btn.setMinimumHeight(32)
+        gen_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         gen_btn.clicked.connect(self.machine_translate_preview)
         quick_btn = QPushButton("⚡ QuickTrans")
         from ..core import shortcuts as _sc_qt2
         quick_btn.setToolTip(_sc_qt2.with_shortcut("quicktrans", "Porównaj tłumaczenia z wielu silników naraz"))
+        quick_btn.setMinimumHeight(32)
+        quick_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         quick_btn.clicked.connect(lambda: self.app.open_quicktrans())
         use_btn = QPushButton("⤵ Wstaw do tłumaczenia")
+        use_btn.setMinimumHeight(32)
+        use_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         use_btn.clicked.connect(lambda: self.set_target_text(self.mt_view.toPlainText()))
-        mt_row.addWidget(gen_btn)
-        mt_row.addWidget(quick_btn)
-        mt_row.addWidget(use_btn)
+        mt_row.addWidget(gen_btn, 0, 0)
+        mt_row.addWidget(quick_btn, 0, 1)
+        mt_row.addWidget(use_btn, 1, 0, 1, 2)
         mt_layout.addLayout(mt_row)
         _right_panel("🤖 MT", mt_box, "mt")
 
@@ -1024,10 +1043,12 @@ class EditorTab(QWidget):
         lang_layout.setContentsMargins(4, 4, 4, 4)
         self.lang_status = QLabel("Kontrola języka tłumaczenia")
         self.lang_status.setWordWrap(True)
+        self.lang_status.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         lang_layout.addWidget(self.lang_status)
         lang_layout.addWidget(self.lang_list, 1)
 
-        lang_opts = QHBoxLayout()
+        lang_opts = QVBoxLayout()
+        lang_opts.setSpacing(2)
         self.lang_auto = QCheckBox("Sprawdzaj na bieżąco")
         self.lang_auto.setToolTip("Kontroluje tłumaczenie w trakcie pisania (z opóźnieniem)")
         self.lang_auto.setChecked(
@@ -1041,18 +1062,24 @@ class EditorTab(QWidget):
         self.lang_lt.setChecked(
             SettingsManager.instance().get_bool("lang.check.languagetool", False))
         self.lang_lt.toggled.connect(self._toggle_lang_lt)
+        self.lang_auto.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        self.lang_lt.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         lang_opts.addWidget(self.lang_auto)
         lang_opts.addWidget(self.lang_lt)
-        lang_opts.addStretch(1)
         lang_layout.addLayout(lang_opts)
 
-        lang_btns = QHBoxLayout()
+        lang_btns = QVBoxLayout()
+        lang_btns.setSpacing(4)
         check_now = QPushButton("🔤 Sprawdź teraz")
         from ..core import shortcuts as _sc_lang
         check_now.setToolTip(_sc_lang.with_shortcut("check_language", "Sprawdź teraz"))
+        check_now.setMinimumHeight(32)
+        check_now.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         check_now.clicked.connect(lambda: self.check_language(force=True))
         fix_btn = QPushButton("✨ Popraw automatycznie")
         fix_btn.setToolTip("Wstawia pierwszą propozycję dla uwag, które ją mają")
+        fix_btn.setMinimumHeight(32)
+        fix_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         fix_btn.clicked.connect(self.apply_language_fixes)
         lang_btns.addWidget(check_now)
         lang_btns.addWidget(fix_btn)
@@ -1077,7 +1104,7 @@ class EditorTab(QWidget):
         self.main_splitter = splitter
         self.apply_panel_layout()
         # Szerokości kolumn: zapamiętane z poprzedniej sesji albo domyślne.
-        splitter.setSizes([220, 900, 350])
+        splitter.setSizes([220, 820, 420])
         self._restore_split_sizes()
         splitter.splitterMoved.connect(self._save_split_sizes)
         self.center_splitter.splitterMoved.connect(self._save_split_sizes)
@@ -1464,26 +1491,38 @@ class EditorTab(QWidget):
         except Exception:
             pass
 
-    def _restore_panel_heights(self) -> None:
-        """Wczytuje wysokości paneli zapisane w poprzedniej sesji."""
+    def _restore_panel_heights(self) -> bool:
+        """Wczytuje wysokości paneli zapisane w poprzedniej sesji.
+
+        Zwraca True, gdy udało się odtworzyć sensowny układ. Stare sesje
+        z panelami po 60 px są pomijane — inaczej przyciski znowu znikają.
+        """
         import json
 
         stack = getattr(self, "_right_stack", None)
         if stack is None:
-            return
+            return False
         raw = SettingsManager.instance().get("editor.panel.heights")
         if not isinstance(raw, str) or not raw:
-            return
+            return False
         try:
             sizes = json.loads(raw)
         except ValueError:
-            return
+            return False
         if not isinstance(sizes, list) or len(sizes) != stack.count():
-            return                      # inny zestaw paneli – zostaw równo
+            return False                      # inny zestaw paneli – zostaw równo
         try:
-            stack.setSizes([max(0, int(v)) for v in sizes])
+            values = [max(0, int(v)) for v in sizes]
         except (TypeError, ValueError):
-            return
+            return False
+        preferred = self._right_panel_preferred_height()
+        compact = self._right_panel_min_height()
+        # Układ z poprzedniej, zgniecionej wersji (wszystko poniżej wygodnej
+        # wysokości) — lepiej zacząć od preferowanych rozmiarów.
+        if values and max(values) < int(preferred * 0.75):
+            return False
+        stack.setSizes([max(compact, v) for v in values])
+        return True
 
     def reset_panel_heights(self) -> None:
         """Równy podział wysokości paneli (↺ Przywróć układ paneli)."""
@@ -1509,7 +1548,18 @@ class EditorTab(QWidget):
             return
         main = data.get("main")
         if isinstance(main, list) and len(main) == self.main_splitter.count():
-            self.main_splitter.setSizes([max(0, int(v)) for v in main])
+            sizes = [max(0, int(v)) for v in main]
+            if len(sizes) >= 3:
+                need = self._right_column_min_width()
+                if sizes[2] < need:
+                    extra = need - sizes[2]
+                    sizes[2] = need
+                    from_center = min(extra, max(0, sizes[1] - 320))
+                    sizes[1] -= from_center
+                    extra -= from_center
+                    if extra:
+                        sizes[0] = max(0, sizes[0] - extra)
+            self.main_splitter.setSizes(sizes)
         center = data.get("center")
         if isinstance(center, list) and len(center) == self.center_splitter.count():
             self.center_splitter.setSizes([max(0, int(v)) for v in center])
@@ -1535,19 +1585,21 @@ class EditorTab(QWidget):
         return max(16, int(round(points * 4 / 3)))
 
     def _right_panel_min_height(self) -> int:
-        """Najmniejsza wysokość panelu, przy której tekst się mieści."""
+        """Najmniejsza wysokość panelu: tytuł, kawałek listy i przycisk."""
         em = self._panel_em_px()
-        return max(96, em * 5 + 28)
+        return max(140, em * 7 + 40)
 
     def _right_panel_preferred_height(self) -> int:
-        """Wygodna wysokość panelu (tytuł + treść + przycisk)."""
+        """Wygodna wysokość panelu (tytuł + treść + przycisk, bez obcinania)."""
         em = self._panel_em_px()
-        return max(168, em * 9 + 48)
+        # Dopasowanie zdań ma checkbox, listę, przycisk i podpowiedź —
+        # 168 px zostawiało przyciski i hint obcięte.
+        return max(280, em * 15 + 80)
 
     def _right_column_min_width(self) -> int:
-        """Szerokość prawej kolumny, w której etykiety się zawijają, a nie obcinają."""
+        """Szerokość prawej kolumny, w której etykiety i przyciski się mieszczą."""
         em = self._panel_em_px()
-        return max(240, em * 14)
+        return max(300, em * 18)
 
     def _fit_right_stack(self) -> None:
         """Dopasowuje minima stacked-paneli do czcionki, żeby pojawił się scroll."""
@@ -1567,7 +1619,7 @@ class EditorTab(QWidget):
             getattr(self, "notes_edit", None),
         ):
             if widget is not None:
-                widget.setMinimumHeight(max(48, em * 4))
+                widget.setMinimumHeight(max(80, em * 5))
         visible_keys = [
             key for _title, _w, key in self._right_panels
             if SettingsManager.instance().get_bool(f"tm.panel.show.{key}", True)
@@ -1683,7 +1735,10 @@ class EditorTab(QWidget):
             # Złapane TUTAJ (po wstawieniu do splittera), bo dopiero teraz
             # splitter ma prawdziwą wysokość i setSizes() ma się do czego
             # odnieść — Qt i tak zachowa proporcje, gdy okno jest inne.
-            self._restore_panel_heights()
+            if not self._restore_panel_heights():
+                preferred = self._right_panel_preferred_height()
+                self._right_stack.setSizes(
+                    [preferred] * self._right_stack.count())
             self._right_stack.splitterMoved.connect(self._save_panel_heights)
         for _title, widget in visible:
             widget.show()
