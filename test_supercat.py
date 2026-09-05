@@ -1542,7 +1542,11 @@ Dziękujemy za korzystanie z MYSTERY"""
     st_ul = w.settings_tab
     check("ustawienia: są sterowniki wyglądu podkreślenia",
           hasattr(st_ul, "ul_thickness") and hasattr(st_ul, "ul_style")
-          and hasattr(st_ul, "ul_error_btn") and hasattr(st_ul, "underline_box"))
+          and hasattr(st_ul, "ul_error_btn") and hasattr(st_ul, "underline_box")
+          and hasattr(st_ul, "ul_custom"))
+    check("ustawienia: nowe grube podkreślenie jest osobno i domyślnie wyłączone",
+          (not st_ul.ul_custom.isChecked())
+          and SettingsManager.instance().get_bool("lang.underline.custom", True) is False)
     check("ustawienia: domyślna grubość podkreślenia",
           st_ul.ul_thickness.value() >= 1, str(st_ul.ul_thickness.value()))
     SettingsManager.instance().set("lang.underline.error.color", "#00aa00")
@@ -1573,6 +1577,13 @@ Dziękujemy za korzystanie z MYSTERY"""
     SettingsManager.instance().set("lang.underline.style", "wave")
     SettingsManager.instance().set("lang.underline.thickness", 2)
     SettingsManager.instance().set("lang.underline.background", False)
+    SettingsManager.instance().set("lang.underline.custom", False)
+    w.editor_tab.highlight_language_issues(w.editor_tab._lang_issues)
+    _classic = [sel.format for sel in w.editor_tab.target_edit.extraSelections()
+                if sel.format.underlineStyle().name == "WaveUnderline"]
+    check("wyłączone nowe: zostaje klasyczna falka Qt",
+          bool(_classic), str([sel.format.underlineStyle().name
+                               for sel in w.editor_tab.target_edit.extraSelections()]))
     w.editor_tab.highlight_language_issues(w.editor_tab._lang_issues)
 
     # główny wyłącznik kontroli języka

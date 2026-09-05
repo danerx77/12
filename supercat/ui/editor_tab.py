@@ -564,6 +564,7 @@ def language_underline_settings():
         "colors": colors,
         "background": sm.get_bool("lang.underline.background", False),
         "enabled": sm.get_bool("lang.check.underline", True),
+        "custom": sm.get_bool("lang.underline.custom", False),
     }
 
 
@@ -4188,7 +4189,12 @@ class EditorTab(QWidget):
                     length = len(body) - start
                 color = opts["colors"].get(getattr(issue, "severity", ""), opts["colors"]["info"])
                 fmt = QTextCharFormat()
-                fmt.setUnderlineStyle(opts["qt_style"])
+                # Stare podkreślenie Qt zostaje, gdy nowe (grube) jest wyłączone.
+                # Przy włączonym nowym nie dublujemy cienkiej falki pod grubą.
+                if opts.get("custom"):
+                    fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.NoUnderline)
+                else:
+                    fmt.setUnderlineStyle(opts["qt_style"])
                 fmt.setUnderlineColor(QColor(color))
                 try:
                     fmt.setToolTip(issue.describe())
@@ -4234,7 +4240,7 @@ class EditorTab(QWidget):
     def _paint_language_underlines(self, editor: QPlainTextEdit) -> None:
         """Rysuje podkreślenie o wybranej grubości (falka Qt jest zawsze cienka)."""
         opts = language_underline_settings()
-        if not opts["enabled"] or opts["thickness"] < 1:
+        if not opts["enabled"] or not opts.get("custom") or opts["thickness"] < 1:
             return
         issues = getattr(self, "_lang_issues", None) or []
         if not issues:

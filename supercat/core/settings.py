@@ -56,6 +56,7 @@ DEFAULTS: Dict[str, Any] = {
     "editor.last.segment": "{}",
     #: Wygląd podkreślenia błędów w polu tłumaczenia.
     "lang.check.underline": True,
+    "lang.underline.custom": False,
     "lang.underline.error.color": "#ff5252",
     "lang.underline.warning.color": "#ffa726",
     "lang.underline.info.color": "#64b5f6",

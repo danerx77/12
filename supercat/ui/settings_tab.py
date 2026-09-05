@@ -948,6 +948,15 @@ class SettingsTab(QTabWidget):
 
         self.underline_box = QGroupBox("Wygląd podkreślenia w polu tłumaczenia")
         ul_form = QFormLayout(self.underline_box)
+
+        self.ul_custom = QCheckBox("Grube podkreślenie (nowe)")
+        self.ul_custom.setToolTip(
+            "Własna, grubsza kreska pod błędem.\n"
+            "Gdy wyłączone, zostaje tylko klasyczna falka Qt (stare podkreślenie).")
+        self.ul_custom.setChecked(self.settings.get_bool("lang.underline.custom", False))
+        self.ul_custom.stateChanged.connect(self._toggle_custom_underline)
+        ul_form.addRow(self.ul_custom)
+
         self.ul_style = QComboBox()
         self.ul_style.setMaximumWidth(260)
         for key, label in (
@@ -973,7 +982,8 @@ class SettingsTab(QTabWidget):
             "Grubość kreski pod błędem. Falka Qt jest zawsze cienka —\n"
             "program dorysowuje własną linię o wybranej grubości.")
         self.ul_thickness.valueChanged.connect(self._on_underline_thickness)
-        ul_form.addRow("Grubość:", self.ul_thickness)
+        self.ul_thickness.setEnabled(self.ul_custom.isChecked())
+        ul_form.addRow("Grubość (tylko nowe):", self.ul_thickness)
 
         colors_row = QHBoxLayout()
         self.ul_error_btn = self._make_underline_color_button(
@@ -1002,8 +1012,8 @@ class SettingsTab(QTabWidget):
         ul_form.addRow(self.ul_background)
 
         ul_hint = QLabel(
-            "Zmiana jest od razu widoczna w polu tłumaczenia "
-            "(czerwona falka przy literówce, grubsza linia przy większej wartości)."
+            "Domyślnie zostaje klasyczna falka Qt. Zaznacz „Grube podkreślenie”, "
+            "jeśli chcesz grubszą kreskę — wtedy możesz też ustawić jej grubość."
         )
         ul_hint.setWordWrap(True)
         ul_hint.setStyleSheet("color: gray; font-size: 11px;")
@@ -1192,6 +1202,13 @@ class SettingsTab(QTabWidget):
         editor = getattr(self.app, "editor_tab", None)
         if editor is not None and hasattr(editor, "check_language"):
             editor.check_language(force=True)
+
+    def _toggle_custom_underline(self, state) -> None:
+        enabled = bool(state)
+        self.settings.set("lang.underline.custom", enabled)
+        if hasattr(self, "ul_thickness"):
+            self.ul_thickness.setEnabled(enabled)
+        self._refresh_lang_underline()
 
     def _toggle_lang_underline(self, state) -> None:
         enabled = bool(state)
