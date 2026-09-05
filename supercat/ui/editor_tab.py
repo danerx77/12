@@ -575,8 +575,14 @@ class TargetEdit(QPlainTextEdit):
         tab = self.parent()
         while tab is not None and not hasattr(tab, "_paint_language_underlines"):
             tab = tab.parent()
-        if tab is not None:
+        if tab is None:
+            return
+        # Wyjątek / drugi QPainter w paintEvent zamykał całą aplikację
+        # w momencie, gdy w tekście pojawiał się błąd językowy.
+        try:
             tab._paint_language_underlines(self)
+        except Exception:
+            return
 
 
 class ExpandingSplitter(QSplitter):
@@ -3878,8 +3884,16 @@ class EditorTab(QWidget):
     @staticmethod
     def _selection(editor, start: int, end: int, fmt) -> "QTextEdit.ExtraSelection":
         cursor = editor.textCursor()
-        cursor.setPosition(start)
-        cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+        # characterCount() liczy też znak końca akapitu — max pozycja to count-1.
+        limit = max(0, editor.document().characterCount() - 1)
+        try:
+            start_i = max(0, min(int(start), limit))
+            end_i = max(start_i, min(int(end), limit))
+        except (TypeError, ValueError):
+            start_i = end_i = 0
+        cursor.setPosition(start_i)
+        if end_i != start_i:
+            cursor.setPosition(end_i, QTextCursor.MoveMode.KeepAnchor)
         selection = QTextEdit.ExtraSelection()
         selection.cursor = cursor
         selection.format = fmt
@@ -4147,40 +4161,52 @@ class EditorTab(QWidget):
         na liście obok i trudno było znaleźć, którego wyrazu dotyczą.
         """
         self._lang_selections = []
-        opts = language_underline_settings()
-        if not opts["enabled"]:
-            self._apply_target_selections()
-            if hasattr(self, "target_edit"):
-                self.target_edit.viewport().update()
-            return
+        try:
+            opts = language_underline_settings()
+            if not opts["enabled"]:
+                self._apply_target_selections()
+                return
 
-        body = self.target_edit.toPlainText()
-        for issue in issues or []:
-            start, length = issue.offset, issue.length
-            if start < 0 or length <= 0:
-                # Uwagi bez pozycji (np. pisownia ze słownika) – znajdź wyraz w tekście.
-                if not issue.fragment:
+            body = self.target_edit.toPlainText()
+            for issue in issues or []:
+                try:
+                    start = int(getattr(issue, "offset", -1))
+                    length = int(getattr(issue, "length", 0) or 0)
+                except (TypeError, ValueError):
+                    start, length = -1, 0
+                if start < 0 or length <= 0:
+                    fragment = getattr(issue, "fragment", "") or ""
+                    if not fragment:
+                        continue
+                    found = re.search(rf"(?<!\w){re.escape(fragment)}(?!\w)", body)
+                    if not found:
+                        continue
+                    start, length = found.start(), found.end() - found.start()
+                if start < 0 or length <= 0 or start >= len(body):
                     continue
-                found = re.search(rf"(?<!\w){re.escape(issue.fragment)}(?!\w)", body)
-                if not found:
-                    continue
-                start, length = found.start(), found.end() - found.start()
-            if start + length > len(body):
-                continue
-            color = opts["colors"].get(issue.severity, opts["colors"]["info"])
-            fmt = QTextCharFormat()
-            # ExtraSelections: falka Qt (testy / dymki). Grubość rysujemy sami.
-            fmt.setUnderlineStyle(opts["qt_style"])
-            fmt.setUnderlineColor(QColor(color))
-            fmt.setToolTip(issue.describe())
-            if opts["background"]:
-                bg = QColor(color)
-                bg.setAlpha(55)
-                fmt.setBackground(bg)
-            self._lang_selections.append(
-                self._selection(self.target_edit, start, start + length, fmt))
-        self._apply_target_selections()
-        self.target_edit.viewport().update()
+                if start + length > len(body):
+                    length = len(body) - start
+                color = opts["colors"].get(getattr(issue, "severity", ""), opts["colors"]["info"])
+                fmt = QTextCharFormat()
+                fmt.setUnderlineStyle(opts["qt_style"])
+                fmt.setUnderlineColor(QColor(color))
+                try:
+                    fmt.setToolTip(issue.describe())
+                except Exception:
+                    pass
+                if opts["background"]:
+                    bg = QColor(color)
+                    bg.setAlpha(55)
+                    fmt.setBackground(bg)
+                self._lang_selections.append(
+                    self._selection(self.target_edit, start, start + length, fmt))
+            self._apply_target_selections()
+        except Exception:
+            self._lang_selections = []
+            try:
+                self._apply_target_selections()
+            except Exception:
+                pass
 
     def _on_suggestions_ready(self, index: int, issues: list) -> None:
         """Uzupełnia listę uwag o doliczone w tle propozycje."""
@@ -4213,26 +4239,39 @@ class EditorTab(QWidget):
         issues = getattr(self, "_lang_issues", None) or []
         if not issues:
             return
-        body = editor.toPlainText()
-        painter = QPainter(editor.viewport())
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        thickness = opts["thickness"]
-        style = opts["style"]
-        for issue in issues:
-            start, length = issue.offset, issue.length
-            if start < 0 or length <= 0:
-                if not issue.fragment:
+        viewport = editor.viewport()
+        painter = QPainter()
+        if not painter.begin(viewport):
+            return
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            thickness = opts["thickness"]
+            style = opts["style"]
+            body = editor.toPlainText()
+            limit = len(body)
+            for issue in issues:
+                try:
+                    start = int(getattr(issue, "offset", -1))
+                    length = int(getattr(issue, "length", 0) or 0)
+                except (TypeError, ValueError):
                     continue
-                found = re.search(rf"(?<!\w){re.escape(issue.fragment)}(?!\w)", body)
-                if not found:
+                if start < 0 or length <= 0:
+                    fragment = getattr(issue, "fragment", "") or ""
+                    if not fragment:
+                        continue
+                    found = re.search(rf"(?<!\w){re.escape(fragment)}(?!\w)", body)
+                    if not found:
+                        continue
+                    start, length = found.start(), found.end() - found.start()
+                end = start + length
+                if start < 0 or start >= limit or start >= end:
                     continue
-                start, length = found.start(), found.end() - found.start()
-            end = start + length
-            if start < 0 or end > len(body) or start >= end:
-                continue
-            color = opts["colors"].get(issue.severity, opts["colors"]["info"])
-            self._paint_range_underline(editor, painter, start, end, color, thickness, style)
-        painter.end()
+                end = min(end, limit)
+                color = opts["colors"].get(getattr(issue, "severity", ""), opts["colors"]["info"])
+                self._paint_range_underline(editor, painter, start, end, color, thickness, style)
+        finally:
+            if painter.isActive():
+                painter.end()
 
     def _paint_range_underline(self, editor, painter, start: int, end: int,
                                color: str, thickness: int, style: str) -> None:
@@ -4245,22 +4284,41 @@ class EditorTab(QWidget):
                 block = block.next()
                 continue
             block_pos = block.position()
+            if block.length() <= 0 or layout.lineCount() <= 0:
+                block = block.next()
+                continue
             origin = editor.blockBoundingGeometry(block).translated(offset).topLeft()
             local_start = max(0, start - block_pos)
-            local_end = min(block.length() - 1, end - block_pos)
+            local_end = min(max(0, block.length() - 1), end - block_pos)
             for line_index in range(layout.lineCount()):
                 line = layout.lineAt(line_index)
+                if not line.isValid():
+                    continue
                 ls = line.textStart()
                 ll = line.textLength()
                 a = max(local_start, ls)
                 b = min(local_end, ls + ll)
                 if a >= b:
                     continue
-                x1 = origin.x() + line.cursorToX(a)
-                x2 = origin.x() + line.cursorToX(b)
+                x1 = origin.x() + self._line_cursor_x(line, a)
+                x2 = origin.x() + self._line_cursor_x(line, b)
                 y = origin.y() + line.y() + line.height() - max(2, thickness)
                 self._stroke_underline(painter, x1, x2, y, color, thickness, style)
             block = block.next()
+
+    @staticmethod
+    def _line_cursor_x(line, pos: int) -> float:
+        """cursorToX w PyQt6 bywa liczbą albo krotką (x, pos) — obie wersje."""
+        try:
+            value = line.cursorToX(int(pos))
+        except Exception:
+            return 0.0
+        if isinstance(value, (tuple, list)):
+            value = value[0] if value else 0.0
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
 
     @staticmethod
     def _stroke_underline(painter, x1, x2, y, color: str, thickness: int, style: str) -> None:
