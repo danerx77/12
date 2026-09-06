@@ -696,18 +696,21 @@ class DockableGroup(QGroupBox):
         self.setAcceptDrops(True)
         self.setProperty("sc_panel_key", key)
         self.setCursor(Qt.CursorShape.OpenHandCursor)
-        # Tytuł MUSI być w całości — za mały margin-top ucinał „Dopasowania TM”.
+        # Tytuł czytelny, bez pustej dziury pod ramką.
         self.setStyleSheet(
             "DockableGroup {"
-            "  margin-top: 14px;"
-            "  padding: 10px 6px 6px 6px;"
             "  font-weight: 600;"
+            "  margin-top: 0.7em;"
+            "  padding-top: 0.15em;"
+            "  padding-left: 4px;"
+            "  padding-right: 4px;"
+            "  padding-bottom: 4px;"
             "}"
             "DockableGroup::title {"
             "  subcontrol-origin: margin;"
             "  subcontrol-position: top left;"
-            "  left: 10px;"
-            "  padding: 0 6px;"
+            "  left: 8px;"
+            "  padding: 0 4px;"
             "}")
         self.setToolTip(
             "Chwyć tytuł i przeciągnij. Podświetlenie pokazuje, co się stanie:\n"
@@ -2481,7 +2484,7 @@ class EditorTab(QWidget):
                 grp.setMinimumHeight(row_min)
                 grp.setMaximumHeight(16777215)
                 gl = QVBoxLayout(grp)
-                gl.setContentsMargins(6, 8, 6, 6)
+                gl.setContentsMargins(4, 4, 4, 4)
                 gl.setSpacing(4)
                 gl.addWidget(w)
                 hs.addWidget(grp)
@@ -2633,7 +2636,7 @@ class EditorTab(QWidget):
                 grp.setSizePolicy(QSizePolicy.Policy.Preferred,
                                   QSizePolicy.Policy.Minimum)
                 gl = QVBoxLayout(grp)
-                gl.setContentsMargins(6, 8, 6, 6)
+                gl.setContentsMargins(4, 4, 4, 4)
                 gl.setSpacing(4)
                 gl.addWidget(w)
                 stack.addWidget(grp)
