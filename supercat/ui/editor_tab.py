@@ -3408,8 +3408,25 @@ class EditorTab(QWidget):
             item = self.files_list.item(i)
             if item.data(Qt.ItemDataRole.UserRole) == file_name:
                 self.files_list.setCurrentItem(item)
+                self.files_list.scrollToItem(
+                    item, QAbstractItemView.ScrollHint.EnsureVisible)
                 break
         self.files_list.blockSignals(False)
+
+    def _sync_files_list_to_segment(self, file_name: str) -> bool:
+        """Zaznacza na liście plik, w którym jest bieżący segment.
+
+        Gdy oglądasz jeden plik i zejdzie się z ostatniego segmentu dalej,
+        lista i filtr przechodzą na kolejny plik. W trybie „Wszystkie pliki”
+        zaznaczenia nie ruszamy. Zwraca True, gdy siatka musi się przebudować.
+        """
+        if self._file_filter is None:
+            return False
+        changed = self._file_filter != file_name
+        if changed:
+            self._file_filter = file_name
+        self._select_file_in_list(file_name)
+        return changed
 
     def _on_grid_move(self, step: int) -> None:
         """Nawigacja klawiaturą z siatki — bez rozszerzania zaznaczenia."""
@@ -3542,6 +3559,7 @@ class EditorTab(QWidget):
         self._loading = True
         self.current_index = index
         seg = self.segments[index]
+        file_changed = self._sync_files_list_to_segment(seg.file_name or "(bez pliku)")
         self.source_edit.setPlainText(seg.source)
         self.target_edit.setPlainText(seg.target)
         self.notes_edit.setPlainText(seg.notes)
@@ -3558,7 +3576,10 @@ class EditorTab(QWidget):
             if edges else ""
         )
         self._loading = False
-        self._select_row_for_index(index)
+        if file_changed:
+            self.refresh_grid()
+        else:
+            self._select_row_for_index(index)
         self.target_edit.setFocus()
         self._search_source_selections = []
         self._highlight_terms()
@@ -3721,11 +3742,9 @@ class EditorTab(QWidget):
         start = self.current_index if self.current_index >= 0 else 0
         step = 1 if forward else -1
 
-        # Zakres podstawowy: bieżący plik, jeśli lista jest nim filtrowana.
+        # Zakres: tylko gdy oglądasz jeden plik (filtr), nie samo zaznaczenie
+        # na liście — to ostatnie podąża za segmentem także w „Wszystkie pliki”.
         scope = self._file_filter
-        if scope is None and 0 <= start < total:
-            seg = self.segments[start]
-            scope = None if self.files_list.currentRow() <= 0 else (seg.file_name or "(bez pliku)")
 
         def in_scope(seg) -> bool:
             return scope is None or (seg.file_name or "(bez pliku)") == scope
