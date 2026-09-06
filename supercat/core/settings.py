@@ -43,7 +43,7 @@ DEFAULTS: Dict[str, Any] = {
     # 0 = czcionka domyślna aplikacji.
     "tm.panel.font.size": 0,
     #: Wielkość czcionki dla POJEDYNCZEGO panelu (0 = jak „wszystkie panele”).
-    # Klucze: matches, sentences, terms, conc, mt, lang, notes.
+    # Klucze: matches, sentences, terms, conc, mt, lang, notes, pad.
     "tm.panel.font.matches": 0,
     "tm.panel.font.sentences": 0,
     "tm.panel.font.terms": 0,
@@ -51,6 +51,7 @@ DEFAULTS: Dict[str, Any] = {
     "tm.panel.font.mt": 0,
     "tm.panel.font.lang": 0,
     "tm.panel.font.notes": 0,
+    "tm.panel.font.pad": 0,
     #: Ostatni segment, na którym skończono pracę — osobno dla każdego pliku
     # (JSON: {nazwa_pliku: numer_segmentu}). Program wraca do tego miejsca.
     "editor.last.segment": "{}",
@@ -65,7 +66,7 @@ DEFAULTS: Dict[str, Any] = {
     "lang.underline.background": False,
     #: Układ paneli po prawej: "stacked" (wszystko naraz) lub "tabs" (zakładki).
     "tm.panel.layout": "stacked",
-    "tm.panel.order": '["matches", "sentences", "terms", "conc", "mt", "lang", "notes"]',
+    "tm.panel.order": '["matches", "sentences", "terms", "conc", "mt", "lang", "notes", "pad"]',
     "tm.panel.zones": "{}",
     "tm.panel.below.rows": "[]",
     #: Które panele po prawej w ogóle pokazywać.
@@ -76,6 +77,7 @@ DEFAULTS: Dict[str, Any] = {
     "tm.panel.show.mt": True,
     "tm.panel.show.lang": True,
     "tm.panel.show.notes": True,
+    "tm.panel.show.pad": True,
     "tm.filter.english": True,
     #: Nie zapisuj do TM wpisów, których tłumaczenie zostało po angielsku.
     "tm.reject.untranslated": False,

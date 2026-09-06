@@ -671,16 +671,17 @@ class ExpandingHandle(QSplitterHandle):
             pass
 
 
-PANEL_KEYS = ("matches", "sentences", "terms", "conc", "mt", "lang", "notes")
+PANEL_KEYS = ("matches", "sentences", "terms", "conc", "mt", "lang", "notes", "pad")
 PANEL_MIME = "application/x-supercat-panel"
 PANEL_LABELS = {
     "matches": "Dopasowania TM",
     "sentences": "Dopasowanie zdań",
-    "terms": "Terminy",
-    "conc": "Słownik TM",
+    "terms": "Glosariusz",
+    "conc": "Szukaj TM",
     "mt": "MT",
     "lang": "Język",
-    "notes": "Notatki",
+    "notes": "Notatki segmentu",
+    "pad": "Notatnik",
 }
 
 
@@ -848,14 +849,10 @@ class DockableGroup(QGroupBox):
         menu.addAction(
             "Umieść na dole (cała szerokość)",
             lambda: self._editor.place_panel(self._panel_key, zone="below"))
-        others = [k for k in ("matches", "sentences", "terms", "conc", "mt", "lang", "notes")
+        others = [k for k in PANEL_KEYS
                   if k != self._panel_key]
         beside_menu = menu.addMenu("Umieść obok")
-        labels = {
-            "matches": "Dopasowania TM", "sentences": "Dopasowanie zdań",
-            "terms": "Terminy", "conc": "Słownik TM", "mt": "MT",
-            "lang": "Język", "notes": "Notatki",
-        }
+        labels = dict(PANEL_LABELS)
         for other in others:
             beside_menu.addAction(
                 labels.get(other, other),
@@ -976,6 +973,9 @@ class EditorTab(QWidget):
         self._dict_timer = QTimer(self)
         self._dict_timer.setSingleShot(True)
         self._dict_timer.timeout.connect(self.run_concordance)
+        self._pad_timer = QTimer(self)
+        self._pad_timer.setSingleShot(True)
+        self._pad_timer.timeout.connect(self._save_notepad)
         self._tm_pending: set[int] = set()
         # Odstęp przed startem wyszukiwania. Jest ADAPTACYJNY: gdy poprzednie
         # szukanie było szybkie, ruszamy niemal natychmiast; gdy trwało długo
@@ -1350,18 +1350,36 @@ class EditorTab(QWidget):
         terms_box = QWidget()
         tb_layout = QVBoxLayout(terms_box)
         tb_layout.setContentsMargins(4, 4, 4, 4)
-        terms_hint = QLabel("Terminy znalezione w segmencie (2× klik = wstaw)")
+        terms_hint = QLabel("Glosariusz — wpisz parę albo 2× klik na terminie, żeby wstawić")
         terms_hint.setWordWrap(True)
         terms_hint.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         tb_layout.addWidget(terms_hint)
+        gloss_row = QHBoxLayout()
+        self.gloss_src = QLineEdit()
+        self.gloss_src.setPlaceholderText("źródło…")
+        self.gloss_src.setToolTip("Wpisz termin źródłowy (albo zaznacz w tekście źródłowym).")
+        self.gloss_tgt = QLineEdit()
+        self.gloss_tgt.setPlaceholderText("tłumaczenie…")
+        self.gloss_tgt.setToolTip("Wpisz tłumaczenie (albo zaznacz w polu tłumaczenia).")
+        add_typed = QPushButton("➕ Dodaj")
+        add_typed.setToolTip("Dopisz parę do glosariusza projektu")
+        add_typed.clicked.connect(self._add_typed_to_glossary)
+        self.gloss_src.returnPressed.connect(self._add_typed_to_glossary)
+        self.gloss_tgt.returnPressed.connect(self._add_typed_to_glossary)
+        gloss_row.addWidget(self.gloss_src, 1)
+        gloss_row.addWidget(self.gloss_tgt, 1)
+        gloss_row.addWidget(add_typed)
+        tb_layout.addLayout(gloss_row)
         tb_layout.addWidget(self.terms_list, 1)
-        add_term_btn = QPushButton("➕ Dodaj zaznaczenie\ndo glosariusza")
-        add_term_btn.setToolTip("Dodaj zaznaczenie do glosariusza")
-        add_term_btn.setMinimumHeight(40)
+        add_term_btn = QPushButton("➕ Z zaznaczenia")
+        add_term_btn.setToolTip(
+            "Bierze zaznaczenie ze źródła i z tłumaczenia.\n"
+            "Możesz też po prostu wpisać oba pola powyżej.")
+        add_term_btn.setMinimumHeight(32)
         add_term_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         add_term_btn.clicked.connect(self._add_selection_to_glossary)
         tb_layout.addWidget(add_term_btn)
-        _right_panel("🏷️ Terminy", terms_box, "terms")
+        _right_panel("🏷️ Glosariusz", terms_box, "terms")
 
         self.concordance_list = QListWidget()
         self.concordance_list.setWordWrap(True)
@@ -1375,14 +1393,14 @@ class EditorTab(QWidget):
         cb_layout.setContentsMargins(4, 4, 4, 4)
         conc_row = QHBoxLayout()
         self.conc_edit = QLineEdit()
-        self.conc_edit.setPlaceholderText("wpisz słowo…")
+        self.conc_edit.setPlaceholderText("szukaj tłumaczenia…")
         self.conc_edit.setToolTip(
-            "Słownik TM: wpisz jedno słowo, program szuka go w pamięci.\n"
+            "Szukaj TM: wpisz słowo albo frazę, program szuka w pamięci.\n"
             "Enter albo chwila po wpisaniu.")
         self.conc_edit.returnPressed.connect(self.run_concordance)
         self.conc_edit.textChanged.connect(self._on_dict_query_changed)
         conc_btn = QPushButton("🔍")
-        conc_btn.setToolTip("Szukaj słowa w TM")
+        conc_btn.setToolTip("Szukaj w pamięci TM")
         conc_btn.clicked.connect(self.run_concordance)
         sel_btn = QPushButton("zazn.")
         sel_btn.setToolTip("Szukaj zaznaczonego słowa ze źródła albo tłumaczenia")
@@ -1397,12 +1415,12 @@ class EditorTab(QWidget):
             "Tylko to słowo, nie kawałek dłuższego (cat ≠ category).")
         self.conc_word.stateChanged.connect(self.run_concordance)
         cb_layout.addWidget(self.conc_word)
-        self.conc_info = QLabel("Słownik TM — wpisz słowo")
+        self.conc_info = QLabel("Szukaj TM — wpisz słowo lub frazę")
         self.conc_info.setWordWrap(True)
         self.conc_info.setStyleSheet("color: gray; font-size: 11px;")
         cb_layout.addWidget(self.conc_info)
         cb_layout.addWidget(self.concordance_list, 1)
-        _right_panel("📖 Słownik TM", conc_box, "conc")
+        _right_panel("🔍 Szukaj TM", conc_box, "conc")
 
         self.mt_view = QPlainTextEdit()
         self.mt_view.setReadOnly(True)
@@ -1497,9 +1515,23 @@ class EditorTab(QWidget):
 
         self.notes_edit = QPlainTextEdit()
         self.notes_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.notes_edit.setPlaceholderText("Notatki do segmentu…")
+        self.notes_edit.setPlaceholderText("Notatka tylko do tego segmentu…")
         self.notes_edit.textChanged.connect(self._on_notes_changed)
-        _right_panel("📝 Notatki", self.notes_edit, "notes")
+        _right_panel("📝 Notatki segmentu", self.notes_edit, "notes")
+
+        pad_box = QWidget()
+        pad_l = QVBoxLayout(pad_box)
+        pad_l.setContentsMargins(4, 4, 4, 4)
+        pad_hint = QLabel("Notatnik projektu — jeden na cały projekt, nie ginie przy zmianie segmentu")
+        pad_hint.setWordWrap(True)
+        pad_hint.setStyleSheet("color: gray; font-size: 11px;")
+        pad_l.addWidget(pad_hint)
+        self.pad_edit = QPlainTextEdit()
+        self.pad_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.pad_edit.setPlaceholderText("Notatnik ogólny — listy, ustalenia, cokolwiek…")
+        self.pad_edit.textChanged.connect(self._on_pad_changed)
+        pad_l.addWidget(self.pad_edit, 1)
+        _right_panel("📒 Notatnik", pad_box, "pad")
         self.apply_panel_font()
 
         splitter.addWidget(left)
@@ -1739,6 +1771,7 @@ class EditorTab(QWidget):
         self.current_index = -1
         self.refresh_files_list()
         self.refresh_grid()
+        self.load_notepad()
         if segments:
             if not self._restore_last_segment():
                 self.load_segment(0)
@@ -2153,6 +2186,7 @@ class EditorTab(QWidget):
             getattr(self, "lang_list", None),
             getattr(self, "mt_view", None),
             getattr(self, "notes_edit", None),
+            getattr(self, "pad_edit", None),
         ):
             if widget is not None:
                 widget.setMinimumHeight(max(80, em * 5))
@@ -3954,6 +3988,7 @@ class EditorTab(QWidget):
                 self.app.save_translations(silent=True)
             except Exception:
                 pass
+        self._save_notepad()
 
     def set_status(self, indices: Sequence[int], status: str) -> int:
         """Ustawia status wielu segmentów naraz. Zwraca liczbę zmian.
@@ -4503,6 +4538,45 @@ class EditorTab(QWidget):
         if self._loading or not (0 <= self.current_index < len(self.segments)):
             return
         self.segments[self.current_index].notes = self.notes_edit.toPlainText()
+
+    def _notepad_path(self):
+        proj = getattr(self.app, "project", None)
+        if not proj or not getattr(proj, "project_path", None):
+            return None
+        return os.path.join(proj.project_path, "notepad.txt")
+
+    def load_notepad(self) -> None:
+        """Wczytuje notatnik ogólny projektu (nie notatki segmentu)."""
+        path = self._notepad_path()
+        text = ""
+        if path and os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as fh:
+                    text = fh.read()
+            except Exception:
+                text = ""
+        edit = getattr(self, "pad_edit", None)
+        if edit is None:
+            return
+        edit.blockSignals(True)
+        edit.setPlainText(text)
+        edit.blockSignals(False)
+
+    def _on_pad_changed(self) -> None:
+        if getattr(self, "_loading", False):
+            return
+        self._pad_timer.start(800)
+
+    def _save_notepad(self) -> None:
+        path = self._notepad_path()
+        if not path or getattr(self, "pad_edit", None) is None:
+            return
+        try:
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(self.pad_edit.toPlainText())
+        except Exception:
+            pass
 
     def set_target_text(self, text: str) -> None:
         if not text:
@@ -5441,19 +5515,46 @@ class EditorTab(QWidget):
         self.app.tabs.setCurrentWidget(self.app.search_tab)
         self.app.search_tab.search_for(text, scope)
 
-    def _add_selection_to_glossary(self) -> None:
-        source_term = self.source_edit.textCursor().selectedText().strip()
-        target_term = self.target_edit.textCursor().selectedText().strip()
+    def _add_typed_to_glossary(self) -> None:
+        """Dopisuje parę wpisaną w polach glosariusza (albo z zaznaczenia)."""
+        source_term = self.gloss_src.text().strip()
+        target_term = self.gloss_tgt.text().strip()
+        if not source_term:
+            source_term = self.source_edit.textCursor().selectedText().strip()
+        if not target_term:
+            target_term = self.target_edit.textCursor().selectedText().strip()
         if not source_term or not target_term:
             QMessageBox.information(
                 self, "Glosariusz",
-                "Zaznacz termin w polu źródłowym ORAZ jego odpowiednik w polu tłumaczenia.",
+                "Wpisz źródło i tłumaczenie w polach powyżej\n"
+                "(albo zaznacz je w tekście źródłowym i w tłumaczeniu).",
             )
+            return
+        if not self.app.glossary.is_initialized:
+            QMessageBox.information(self, "Glosariusz", "Najpierw otwórz lub utwórz projekt.")
             return
         self.app.glossary.add(source_term, target_term)
         self.app.glossary_tab.refresh()
         self._refresh_terms()
+        self.gloss_src.clear()
+        self.gloss_tgt.clear()
         self.status_message.emit(f"Dodano do glosariusza: {source_term} → {target_term}")
+
+    def _add_selection_to_glossary(self) -> None:
+        source_term = self.source_edit.textCursor().selectedText().strip()
+        target_term = self.target_edit.textCursor().selectedText().strip()
+        if source_term:
+            self.gloss_src.setText(source_term)
+        if target_term:
+            self.gloss_tgt.setText(target_term)
+        if source_term and target_term:
+            self._add_typed_to_glossary()
+            return
+        QMessageBox.information(
+            self, "Glosariusz",
+            "Zaznacz termin w źródle i tłumaczenie w polu obok,\n"
+            "albo wpisz oba w polach „źródło” / „tłumaczenie” nad listą.",
+        )
 
     def _on_dict_query_changed(self, _text: str = "") -> None:
         self._dict_timer.start(400)
@@ -5498,7 +5599,7 @@ class EditorTab(QWidget):
         text = query if isinstance(query, str) and query else self.conc_edit.text().strip()
         self.concordance_list.clear()
         if not text:
-            self.conc_info.setText("Słownik TM — wpisz słowo")
+            self.conc_info.setText("Szukaj TM — wpisz słowo lub frazę")
             return
         if not self.app.tm.is_initialized:
             self.conc_info.setText("Brak pamięci TM (otwórz projekt)")
@@ -5515,7 +5616,7 @@ class EditorTab(QWidget):
             self.concordance_list.addItem(item)
         if results:
             self.conc_info.setText(
-                f"{len(results)} trafień w TM dla „{text}”  (2× klik = wstaw)")
+                f"{len(results)} tłumaczeń w TM dla „{text}”  (2× klik = wstaw)")
         else:
             self.conc_info.setText(f"Brak „{text}” w pamięci TM")
             self.concordance_list.addItem("(brak wyników w pamięci TM)")

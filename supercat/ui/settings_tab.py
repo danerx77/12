@@ -122,11 +122,12 @@ class SettingsTab(QTabWidget):
         for key, label in (("", "Wszystkie panele (wspólna)"),
                            ("matches", "Dopasowania TM"),
                            ("sentences", "Dopasowanie zdań"),
-                           ("terms", "Terminy / glosariusz"),
-                           ("conc", "Słownik TM"),
+                           ("terms", "Glosariusz"),
+                           ("conc", "Szukaj TM"),
                            ("mt", "Tłumaczenie maszynowe"),
                            ("lang", "Język"),
-                           ("notes", "Notatki")):
+                           ("notes", "Notatki segmentu"),
+                           ("pad", "Notatnik")):
             row = QHBoxLayout()
             row.setContentsMargins(0, 0, 0, 0)
             row.addWidget(QLabel(label))
@@ -213,11 +214,12 @@ class SettingsTab(QTabWidget):
         self._panel_show_checks = {}
         for key, label in (("matches", "Dopasowania TM"),
                            ("sentences", "Dopasowanie zdań"),
-                           ("terms", "Terminy"),
-                           ("conc", "Słownik TM"),
+                           ("terms", "Glosariusz"),
+                           ("conc", "Szukaj TM"),
                            ("mt", "MT"),
                            ("lang", "Język"),
-                           ("notes", "Notatki")):
+                           ("notes", "Notatki segmentu"),
+                           ("pad", "Notatnik")):
             cb = QCheckBox(label)
             cb.setChecked(self.settings.get_bool(f"tm.panel.show.{key}", True))
             cb.stateChanged.connect(
@@ -234,7 +236,7 @@ class SettingsTab(QTabWidget):
         rb_row.addStretch(1)
         rb_l.addLayout(rb_row)
         show_row = QHBoxLayout()
-        for key in ("matches", "sentences", "terms", "conc", "mt", "lang", "notes"):
+        for key in ("matches", "sentences", "terms", "conc", "mt", "lang", "notes", "pad"):
             show_row.addWidget(self._panel_show_checks[key])
         show_row.addStretch(1)
         rb_l.addLayout(show_row)
@@ -251,7 +253,7 @@ class SettingsTab(QTabWidget):
         except (TypeError, ValueError):
             order = []
         keys = [k for k in order if k in self._panel_show_checks]
-        for k in ("matches", "sentences", "terms", "conc", "mt", "lang", "notes"):
+        for k in ("matches", "sentences", "terms", "conc", "mt", "lang", "notes", "pad"):
             if k not in keys:
                 keys.append(k)
         try:
@@ -829,7 +831,7 @@ class SettingsTab(QTabWidget):
         if not isinstance(order, list):
             order = []
         keys = [str(k) for k in order]
-        for k in ("matches", "sentences", "terms", "conc", "mt", "lang", "notes"):
+        for k in ("matches", "sentences", "terms", "conc", "mt", "lang", "notes", "pad"):
             if k not in keys:
                 keys.append(k)
         if key not in keys:
