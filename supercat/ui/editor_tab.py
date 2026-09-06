@@ -871,19 +871,60 @@ class DockableGroup(QGroupBox):
 
 
 class BandHeightGrip(QFrame):
-    """Kreska na górze dolnego pasa — przeciągnij w górę, żeby go powiększyć."""
+    """Ręczny pasek wysokości dolnego pasa: przeciągnij albo − / +."""
 
     def __init__(self, editor: "EditorTab") -> None:
         super().__init__()
         self._editor = editor
         self._drag_y = 0.0
         self._sizes: list[int] = []
-        self.setFixedHeight(8)
+        self.setFixedHeight(24)
         self.setCursor(Qt.CursorShape.SizeVerCursor)
-        self.setToolTip("Przeciągnij w GÓRĘ, żeby powiększyć dolny pas (TM / zdania).")
+        self.setToolTip("Przeciągnij w dół = zwęź pas, w górę = powiększ. Albo użyj − / +.")
         self.setStyleSheet(
-            "BandHeightGrip { background: #4a5a75; border-radius: 3px; }"
-            "BandHeightGrip:hover { background: #2f7fd1; }")
+            "BandHeightGrip { background: #3d4b63; border: 1px solid #5a6b86; border-radius: 4px; }"
+            "BandHeightGrip:hover { background: #2f7fd1; border-color: #90caf9; }")
+        row = QHBoxLayout(self)
+        row.setContentsMargins(4, 0, 4, 0)
+        row.setSpacing(6)
+        minus = QToolButton()
+        minus.setText("−")
+        minus.setToolTip("Zwęź pas")
+        minus.setFixedSize(28, 20)
+        minus.setCursor(Qt.CursorShape.PointingHandCursor)
+        minus.clicked.connect(lambda: self._nudge(-90))
+        plus = QToolButton()
+        plus.setText("+")
+        plus.setToolTip("Powiększ pas")
+        plus.setFixedSize(28, 20)
+        plus.setCursor(Qt.CursorShape.PointingHandCursor)
+        plus.clicked.connect(lambda: self._nudge(90))
+        lab = QLabel("↕  Zwęź / powiększ pas  (przeciągnij albo − +)")
+        lab.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lab.setStyleSheet("color: #d0d8e6; font-size: 11px; background: transparent; border: none;")
+        lab.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        row.addWidget(minus)
+        row.addWidget(lab, 1)
+        row.addWidget(plus)
+
+    def _nudge(self, delta: int) -> None:
+        root = getattr(self._editor, "_root_split", None)
+        if root is None or root.count() != 2:
+            return
+        self._sizes = list(root.sizes())
+        self._apply_bottom(self._sizes[1] + delta)
+        saver = getattr(self._editor, "_save_split_sizes", None)
+        if callable(saver):
+            saver()
+
+    def _apply_bottom(self, bottom: int) -> None:
+        root = getattr(self._editor, "_root_split", None)
+        if root is None or len(self._sizes) != 2:
+            return
+        total = self._sizes[0] + self._sizes[1]
+        bottom = max(48, min(int(bottom), total - 100))
+        root.setSizes([total - bottom, bottom])
+        self._editor._sync_below_stack_size()
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
@@ -895,15 +936,8 @@ class BandHeightGrip(QFrame):
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
         if not (event.buttons() & Qt.MouseButton.LeftButton) or len(self._sizes) != 2:
             return
-        root = getattr(self._editor, "_root_split", None)
-        if root is None:
-            return
         dy = int(self._drag_y - event.globalPosition().y())
-        total = self._sizes[0] + self._sizes[1]
-        bottom = max(70, min(self._sizes[1] + dy, total - 100))
-        top = total - bottom
-        root.setSizes([top, bottom])
-        self._editor._sync_below_stack_size()
+        self._apply_bottom(self._sizes[1] + dy)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         super().mouseReleaseEvent(event)
