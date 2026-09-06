@@ -705,12 +705,21 @@ class TranslationMemory:
             sql += f" LIMIT {int(limit)}"
         return list(self._conn.execute(sql))
 
-    def search(self, query: str, limit: int = 200) -> List[Tuple[str, str, str, str, int]]:
-        """Wyszukiwanie konkordancji (source LUB target zawiera query)."""
+    def search(self, query: str, limit: int = 200, whole_word: bool = False
+               ) -> List[Tuple[str, str, str, str, int]]:
+        """Szuka frazy w TM (źródło albo tłumaczenie).
+
+        `whole_word=True` — tylko całe słowo, nie fragment w środku innego
+        (np. „cat” nie trafia „category”).
+        """
         if not self._conn or not query:
             return []
+        query = query.strip()
+        if not query:
+            return []
         like = f"%{query}%"
-        return list(
+        fetch = limit * 8 if whole_word else limit
+        rows = list(
             self._conn.execute(
                 """
                 SELECT source_text, target_text, source_lang, target_lang, usage_count
@@ -718,9 +727,20 @@ class TranslationMemory:
                 WHERE source_text LIKE ? COLLATE NOCASE OR target_text LIKE ? COLLATE NOCASE
                 ORDER BY usage_count DESC LIMIT ?
                 """,
-                (like, like, limit),
+                (like, like, fetch),
             )
         )
+        if not whole_word:
+            return rows[:limit]
+        pat = re.compile(
+            r"(?<!\w)" + re.escape(query) + r"(?!\w)", re.IGNORECASE | re.UNICODE)
+        out = []
+        for row in rows:
+            if pat.search(row[0] or "") or pat.search(row[1] or ""):
+                out.append(row)
+                if len(out) >= limit:
+                    break
+        return out
 
     # --------------------------------------------------- dopasowania fuzzy
     def _candidates(self, key: str, threshold: int) -> List[int]:

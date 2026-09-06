@@ -677,7 +677,7 @@ PANEL_LABELS = {
     "matches": "Dopasowania TM",
     "sentences": "Dopasowanie zdań",
     "terms": "Terminy",
-    "conc": "Konkordancja",
+    "conc": "Słownik TM",
     "mt": "MT",
     "lang": "Język",
     "notes": "Notatki",
@@ -853,7 +853,7 @@ class DockableGroup(QGroupBox):
         beside_menu = menu.addMenu("Umieść obok")
         labels = {
             "matches": "Dopasowania TM", "sentences": "Dopasowanie zdań",
-            "terms": "Terminy", "conc": "Konkordancja", "mt": "MT",
+            "terms": "Terminy", "conc": "Słownik TM", "mt": "MT",
             "lang": "Język", "notes": "Notatki",
         }
         for other in others:
@@ -973,6 +973,9 @@ class EditorTab(QWidget):
         self._tm_upsert_timer = QTimer(self)
         self._tm_upsert_timer.setSingleShot(True)
         self._tm_upsert_timer.timeout.connect(self._flush_segment_tm)
+        self._dict_timer = QTimer(self)
+        self._dict_timer.setSingleShot(True)
+        self._dict_timer.timeout.connect(self.run_concordance)
         self._tm_pending: set[int] = set()
         # Odstęp przed startem wyszukiwania. Jest ADAPTACYJNY: gdy poprzednie
         # szukanie było szybkie, ruszamy niemal natychmiast; gdy trwało długo
@@ -1366,20 +1369,40 @@ class EditorTab(QWidget):
         self.concordance_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.concordance_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.concordance_list.setMinimumHeight(64)
+        self.concordance_list.itemDoubleClicked.connect(self._insert_concordance)
         conc_box = QWidget()
         cb_layout = QVBoxLayout(conc_box)
         cb_layout.setContentsMargins(4, 4, 4, 4)
         conc_row = QHBoxLayout()
         self.conc_edit = QLineEdit()
-        self.conc_edit.setPlaceholderText("szukaj w pamięci tłumaczeń…")
+        self.conc_edit.setPlaceholderText("wpisz słowo…")
+        self.conc_edit.setToolTip(
+            "Słownik TM: wpisz jedno słowo, program szuka go w pamięci.\n"
+            "Enter albo chwila po wpisaniu.")
         self.conc_edit.returnPressed.connect(self.run_concordance)
+        self.conc_edit.textChanged.connect(self._on_dict_query_changed)
         conc_btn = QPushButton("🔍")
+        conc_btn.setToolTip("Szukaj słowa w TM")
         conc_btn.clicked.connect(self.run_concordance)
+        sel_btn = QPushButton("zazn.")
+        sel_btn.setToolTip("Szukaj zaznaczonego słowa ze źródła albo tłumaczenia")
+        sel_btn.clicked.connect(self._dict_from_selection)
         conc_row.addWidget(self.conc_edit, 1)
         conc_row.addWidget(conc_btn)
+        conc_row.addWidget(sel_btn)
         cb_layout.addLayout(conc_row)
-        cb_layout.addWidget(self.concordance_list)
-        _right_panel("🔍 Konkordancja", conc_box, "conc")
+        self.conc_word = QCheckBox("całe słowo")
+        self.conc_word.setChecked(True)
+        self.conc_word.setToolTip(
+            "Tylko to słowo, nie kawałek dłuższego (cat ≠ category).")
+        self.conc_word.stateChanged.connect(self.run_concordance)
+        cb_layout.addWidget(self.conc_word)
+        self.conc_info = QLabel("Słownik TM — wpisz słowo")
+        self.conc_info.setWordWrap(True)
+        self.conc_info.setStyleSheet("color: gray; font-size: 11px;")
+        cb_layout.addWidget(self.conc_info)
+        cb_layout.addWidget(self.concordance_list, 1)
+        _right_panel("📖 Słownik TM", conc_box, "conc")
 
         self.mt_view = QPlainTextEdit()
         self.mt_view.setReadOnly(True)
@@ -3462,6 +3485,7 @@ class EditorTab(QWidget):
         act_alt = menu.addAction("📝 Dodaj jako tłumaczenie alternatywne")
         act_show_alt = menu.addAction("🔍 Pokaż tłumaczenia alternatywne")
         menu.addSeparator()
+        act_dict = menu.addAction("📖 Szukaj zaznaczonego słowa w TM")
         act_find = menu.addAction("🔍 Szukaj zaznaczonego wyrazu w projekcie (Ctrl+Shift+F)")
         from ..core import shortcuts as _sc_find
         act_find_file = menu.addAction(_sc_find.with_shortcut("find_in_file", "🔎 Szukaj tylko w tym pliku"))
@@ -3529,6 +3553,9 @@ class EditorTab(QWidget):
             return
         if action == act_adapt:
             self.adapt_codes_selected()
+            return
+        if action == act_dict:
+            self._dict_from_selection()
             return
         if action == act_find:
             self.find_selected_word()
@@ -5303,6 +5330,18 @@ class EditorTab(QWidget):
                 add_action = menu.addAction(f"➕ Dodaj „{issue.fragment}” do słownika")
                 add_action.triggered.connect(lambda _c=False, wrd=issue.fragment:
                                              self.add_word_to_dictionary(wrd))
+        cursor = self.target_edit.textCursor()
+        word = cursor.selectedText().strip()
+        if not word:
+            under = self.target_edit.cursorForPosition(pos)
+            under.select(QTextCursor.SelectionType.WordUnderCursor)
+            word = under.selectedText().strip()
+        if word:
+            word = word.split()[0]
+            menu.addSeparator()
+            act_tm_word = menu.addAction(f"📖 Szukaj „{word}” w TM")
+            act_tm_word.triggered.connect(
+                lambda _c=False, w=word: self._lookup_word_in_tm(w))
         menu.exec(self.target_edit.viewport().mapToGlobal(pos))
 
     def _replace_issue(self, issue, replacement: str) -> None:
@@ -5399,21 +5438,69 @@ class EditorTab(QWidget):
         self._refresh_terms()
         self.status_message.emit(f"Dodano do glosariusza: {source_term} → {target_term}")
 
+    def _on_dict_query_changed(self, _text: str = "") -> None:
+        self._dict_timer.start(400)
+
+    def _lookup_word_in_tm(self, word: str) -> None:
+        word = (word or "").strip()
+        if not word:
+            return
+        word = word.split()[0]
+        self.conc_edit.blockSignals(True)
+        self.conc_edit.setText(word)
+        self.conc_edit.blockSignals(False)
+        self.run_concordance(word)
+
+    def _dict_from_selection(self) -> None:
+        """Bierze zaznaczone (albo słowo pod kursorem) i szuka go w TM."""
+        word = ""
+        for editor in (self.source_edit, self.target_edit):
+            cursor = editor.textCursor()
+            text = cursor.selectedText().strip()
+            if not text:
+                cursor.select(QTextCursor.SelectionType.WordUnderCursor)
+                text = cursor.selectedText().strip()
+            if text:
+                word = text
+                break
+        if not word:
+            self.conc_info.setText("Zaznacz słowo w źródle albo tłumaczeniu")
+            return
+        self._lookup_word_in_tm(word)
+
+    def _insert_concordance(self, item: QListWidgetItem) -> None:
+        text = item.data(Qt.ItemDataRole.UserRole)
+        if not text:
+            return
+        cursor = self.target_edit.textCursor()
+        cursor.insertText(str(text))
+        self.target_edit.setTextCursor(cursor)
+        self._on_target_changed()
+
     def run_concordance(self, query: str | None = None) -> None:
         text = query if isinstance(query, str) and query else self.conc_edit.text().strip()
-        if not text:
-            seg = self.current_segment()
-            text = (seg.source[:40] if seg else "")
-            self.conc_edit.setText(text)
         self.concordance_list.clear()
-        if not text or not self.app.tm.is_initialized:
+        if not text:
+            self.conc_info.setText("Słownik TM — wpisz słowo")
             return
-        results = self.app.tm.search(text, 100)
+        if not self.app.tm.is_initialized:
+            self.conc_info.setText("Brak pamięci TM (otwórz projekt)")
+            return
+        whole = True
+        box = getattr(self, "conc_word", None)
+        if box is not None:
+            whole = box.isChecked()
+        results = self.app.tm.search(text, 80, whole_word=whole)
         for src, tgt, _sl, _tl, _uc in results:
             item = QListWidgetItem(f"{src}\n    → {tgt}")
+            item.setToolTip(f"{src}\n→ {tgt}\n\n2× klik wstawia tłumaczenie pod kursor.")
             item.setData(Qt.ItemDataRole.UserRole, tgt)
             self.concordance_list.addItem(item)
-        if not results:
+        if results:
+            self.conc_info.setText(
+                f"{len(results)} trafień w TM dla „{text}”  (2× klik = wstaw)")
+        else:
+            self.conc_info.setText(f"Brak „{text}” w pamięci TM")
             self.concordance_list.addItem("(brak wyników w pamięci TM)")
 
     # --------------------------------------------------------------- akcje

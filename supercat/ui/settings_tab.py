@@ -123,7 +123,7 @@ class SettingsTab(QTabWidget):
                            ("matches", "Dopasowania TM"),
                            ("sentences", "Dopasowanie zdań"),
                            ("terms", "Terminy / glosariusz"),
-                           ("conc", "Konkordancja"),
+                           ("conc", "Słownik TM"),
                            ("mt", "Tłumaczenie maszynowe"),
                            ("lang", "Język"),
                            ("notes", "Notatki")):
@@ -214,7 +214,7 @@ class SettingsTab(QTabWidget):
         for key, label in (("matches", "Dopasowania TM"),
                            ("sentences", "Dopasowanie zdań"),
                            ("terms", "Terminy"),
-                           ("conc", "Konkordancja"),
+                           ("conc", "Słownik TM"),
                            ("mt", "MT"),
                            ("lang", "Język"),
                            ("notes", "Notatki")):
