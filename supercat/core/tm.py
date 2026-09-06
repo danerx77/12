@@ -339,7 +339,7 @@ class _Index:
         index = self.word_index
         for i in range(start, total):
             for word in set(_TOKEN_RE.findall(self.flats[i])):
-                if len(word) >= 3:
+                if len(word) >= 3 and word not in _TAG_WORDS:
                     index.setdefault(word, []).append(i)
             if yield_every and (i - start) and (i - start) % yield_every == 0:
                 time.sleep(0)
@@ -347,7 +347,7 @@ class _Index:
 
     def candidates_for(self, text: str, max_candidates: int = 4000) -> Optional[List[int]]:
         """Numery wpisów dzielących słowo z podanym tekstem (None = brak filtra)."""
-        words = {w for w in _TOKEN_RE.findall(text) if len(w) >= 3}
+        words = {w for w in _TOKEN_RE.findall(text) if len(w) >= 3 and w not in _TAG_WORDS}
         if not words:
             return None
         self.build_word_index()
@@ -358,13 +358,15 @@ class _Index:
         # Słowa pospolite (np. „system”, „numer”) występują niemal wszędzie
         # i nic nie zawężają. Bierzemy najpierw najrzadsze i dokładamy kolejne,
         # dopóki zbiór kandydatów pozostaje wyraźnie mniejszy od całej pamięci.
+        # Tagów {COLOR BLUE} nie liczymy — inaczej „blue” bierze opis sali
+        # zamiast hasła MISTY / PEWTER CITY.
         buckets = [(len(self.word_index.get(w, ())), w) for w in words]
         buckets = [(n, w) for n, w in buckets if n]
         if not buckets:
             return None
         buckets.sort()
 
-        cap = min(max_candidates, max(1, total // 2))
+        cap = min(max_candidates, total if total < 64 else max(64, total // 2))
         found: set[int] = set()
         for count, word in buckets:
             if found and len(found) + count > cap:
