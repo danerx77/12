@@ -87,6 +87,8 @@ class SentenceMatch:
     coverage: int  # jaki % znaków segmentu pokrywa fragment
     #: Pary (linia źródłowa, linia tłumaczenia) – rozbicie wpisu TM po \n / \p.
     line_pairs: List[Tuple[str, str]] = field(default_factory=list)
+    #: Dla każdej pary: "TM" (z dopasowania całości), "linia" (z innego wpisu).
+    line_origins: List[str] = field(default_factory=list)
     #: Skąd pochodzi dopasowanie: "fragment", "linia" lub "złożenie".
     kind: str = "fragment"
     origin: str = ""
@@ -1274,7 +1276,129 @@ class TranslationMemory:
             seen_assembled.add(match.assembled)
             unique.append(match)
 
+        composed = self._compose_tm_and_lines(segment, unique, should_cancel)
+        if composed is not None:
+            unique = [composed] + [m for m in unique if m.assembled != composed.assembled]
+
         return unique[:limit]
+
+    def _compose_tm_and_lines(
+        self, segment: str, line_matches: List[SentenceMatch],
+        should_cancel: Optional[Callable[[], bool]] = None,
+    ) -> Optional[SentenceMatch]:
+        """Jedna całość: dopasowanie TM + przetłumaczone linie z innych wpisów.
+
+        Typowy przypadek: TM 100% ma jeszcze angielskie zdanie, a w poprzednim
+        podobnym segmencie to zdanie już jest po polsku. Składamy jeden tekst
+        i zaznaczamy, skąd wzięła się każda linia.
+        """
+        if not segment or not segment.strip():
+            return None
+        if should_cancel is not None and should_cancel():
+            return None
+        seg_lines = split_lines_by_codes(segment)
+        if len(seg_lines) < 2:
+            return None
+
+        def _flat(text: str) -> str:
+            return _flatten_text(_INLINE_CODE_RE.sub(" ", text or ""))
+
+        aligned: dict[str, str] = {}
+        whole_origin = ""
+        try:
+            wholes = self.find_fuzzy_matches(segment, threshold=50, limit=3)
+        except Exception:
+            wholes = []
+        if wholes:
+            best = wholes[0]
+            whole_origin = (getattr(best, "origin", "") or "").strip()
+            for src_l, tgt_l in align_lines(best.original_source, best.original_target):
+                aligned[_flat(src_l)] = tgt_l
+
+        from_lines: dict[str, str] = {}
+        for match in line_matches:
+            pairs = match.line_pairs or [(match.fragment_source, match.fragment_target)]
+            for src_l, tgt_l in pairs:
+                if not tgt_l or _is_mostly_untranslated(src_l, tgt_l):
+                    continue
+                from_lines[_flat(src_l)] = tgt_l
+            if match.fragment_target and not _is_mostly_untranslated(
+                    match.fragment_source, match.fragment_target):
+                from_lines[_flat(match.fragment_source)] = match.fragment_target
+
+        # Linie z cache TM (inne segmenty), gdy 1d nie trafiło przez znaczniki.
+        keys = getattr(self, "_line_keys", None) or []
+        srcs = getattr(self, "_line_src", None) or []
+        tgts = getattr(self, "_line_tgt", None) or []
+        if keys and len(keys) == len(tgts):
+            for line in seg_lines:
+                fl = _flat(line)
+                if fl in from_lines:
+                    continue
+                words = _match_words(fl)
+                best_score, best_tgt = 0, ""
+                if HAS_RAPIDFUZZ:
+                    try:
+                        hit = _rf_process.extractOne(
+                            fl, keys, scorer=_rf_fuzz.ratio, score_cutoff=80)
+                    except Exception:
+                        hit = None
+                    if hit:
+                        idx = hit[2]
+                        cand_src = srcs[idx] if idx < len(srcs) else line
+                        cand_tgt = tgts[idx]
+                        if cand_tgt and not _is_mostly_untranslated(cand_src, cand_tgt):
+                            if _covers_enough(words, keys[idx], fl):
+                                best_tgt = cand_tgt
+                if best_tgt:
+                    from_lines[fl] = best_tgt
+
+        def _still_en(src: str, tgt: str) -> bool:
+            if not tgt:
+                return True
+            if _is_mostly_untranslated(src, tgt):
+                return True
+            return _flat(src) == _flat(tgt) and len(_match_words(_flat(src))) > 2
+
+        assembled = segment
+        pairs: List[Tuple[str, str]] = []
+        origins: List[str] = []
+        used_other = False
+        for line in seg_lines:
+            fl = _flat(line)
+            cand_tm = aligned.get(fl, "")
+            cand_ln = from_lines.get(fl, "")
+            tm_ok = bool(cand_tm) and not _still_en(line, cand_tm)
+            ln_ok = bool(cand_ln) and not _still_en(line, cand_ln)
+            if ln_ok and not tm_ok:
+                chosen, origin = cand_ln, "linia"
+                used_other = True
+            elif tm_ok:
+                chosen, origin = cand_tm, "TM"
+            elif cand_tm:
+                chosen, origin = cand_tm, "TM"
+            else:
+                chosen, origin = line, "—"
+            shown = self.adapt_line_case(line, chosen)
+            if shown != line:
+                replaced = _replace_line_in_segment(assembled, line, shown)
+                if replaced:
+                    assembled = replaced
+            pairs.append((line, shown))
+            origins.append(origin)
+
+        if not used_other:
+            return None
+        coverage = int(round(
+            sum(len(t) for _s, t in pairs if t != _s) * 100 / max(len(segment), 1)))
+        coverage = min(100, max(coverage, 1))
+        partial = any(o == "—" or _is_mostly_untranslated(s, t) for (s, t), o in zip(pairs, origins))
+        return SentenceMatch(
+            segment, assembled, assembled, coverage,
+            line_pairs=pairs, line_origins=origins,
+            kind="TM + linie", origin=whole_origin,
+            partial=partial,
+        )
 
     def _fuzzy_line_matches(self, segment: str, filter_untranslated: bool,
                             should_cancel: Optional[Callable[[], bool]] = None) -> List[SentenceMatch]:
@@ -1756,8 +1880,11 @@ def _match_words(text: str) -> set:
     Wpis „just one / tylko 1” nie jest dopasowaniem zdania „…mieć 1 salę.”
     tylko dlatego, że oba mają cyfrę 1. Cyfry („1”, „TM01” liczy się dalej,
     bo ma litery) i jednoliterowe słowa nie biorą udziału w ocenie pokrycia.
+    Znaczniki {COLOR BLUE} nie liczą się jako słowa — inaczej zdanie z TM
+    bez kodów nie pokrywałoby linii z kodami gry.
     """
-    return {w for w in _TOKEN_RE.findall((text or "").lower())
+    text = _INLINE_CODE_RE.sub(" ", text or "")
+    return {w for w in _TOKEN_RE.findall(text.lower())
             if len(w) >= 2 and any(c.isalpha() for c in w)}
 
 

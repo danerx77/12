@@ -4655,18 +4655,33 @@ class EditorTab(QWidget):
         if not sentences:
             self.sentence_info.setText("Brak pasujących fragmentów zdań")
             return
-        self.sentence_info.setText(f"Znaleziono {len(sentences)} fragmentów zdań w TM")
+        first_kind = getattr(sentences[0], "kind", "")
+        if first_kind == "TM + linie":
+            self.sentence_info.setText(
+                f"TM + linie: całość z różnicami  •  {len(sentences)} propozycji")
+        else:
+            self.sentence_info.setText(f"Znaleziono {len(sentences)} fragmentów zdań w TM")
         for match in sentences:
             # Na ekranie tekst BEZ znaczników (<<kon>>, {PLAYER}) — do
             # wstawienia idzie pełna wersja, żeby plik zachował kodowanie
             # oryginału. Znaczniki widać w podpowiedzi po najechaniu myszą.
             shown = _strip_codes(match.assembled)
             if match.line_pairs:
-                # rozbicie linia po linii – najczytelniejsza postać dla plików gier
-                lines = "\n".join(
-                    f"      {_strip_codes(src)}\n          → {_strip_codes(tgt)}"
-                    for src, tgt in match.line_pairs
-                )
+                marks = list(getattr(match, "line_origins", None) or [])
+                rows = []
+                for i, (src, tgt) in enumerate(match.line_pairs):
+                    mark = marks[i] if i < len(marks) else ""
+                    if mark == "linia":
+                        tag = "  ← z innego zdania TM"
+                    elif mark == "TM":
+                        tag = "  ← dopasowanie TM"
+                    else:
+                        tag = ""
+                    rows.append(
+                        f"      {_strip_codes(src)}\n"
+                        f"          → {_strip_codes(tgt)}{tag}"
+                    )
+                lines = "\n".join(rows)
                 text = (
                     f"[{match.label}]\n"
                     f"{lines}\n"
@@ -4689,7 +4704,9 @@ class EditorTab(QWidget):
             item.setToolTip(
                 f"{match.assembled}\n\n(fragment: {match.fragment_source}"
                 f" → {match.fragment_target}){origin_line}")
-            if getattr(match, "partial", False):
+            if getattr(match, "kind", "") == "TM + linie":
+                item.setForeground(QColor("#80cbc4"))
+            elif getattr(match, "partial", False):
                 # Złożenie zostawia tekst źródłowy — na pomarańczowo, żeby nie
                 # dało się go wziąć za gotowe tłumaczenie.
                 item.setForeground(QColor("#ffb74d"))
