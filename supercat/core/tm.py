@@ -205,8 +205,14 @@ def _adapt_to_segment(source: str, target: str) -> str:
 
 
 def _norm_key(text: str) -> str:
-    """Klucz porównawczy: bez tagów i znaczników linii, bez akcentów, małe litery."""
-    return _strip_accents(unify_control_codes(normalize_tags_for_comparison(text or "")).lower())
+    """Klucz porównawczy: treść bez tagów i kodów linii.
+
+    Same `{COLOR BLUE}` / `\\p` nie mogą zawyżać podobieństwa dwóch różnych
+    dialogów (BROCK vs ERIKA).
+    """
+    k = _strip_accents(unify_control_codes(normalize_tags_for_comparison(text or "")).lower())
+    k = re.sub(r"[@~^]+", " ", k)
+    return re.sub(r"\s+", " ", k).strip()
 
 
 def similarity_percent(a: str, b: str) -> int:
@@ -847,9 +853,12 @@ class TranslationMemory:
         seg_words = _content_words(source)
         for sim, i in scored:
             db_source = self._index.sources[i]
-            # Wspólne „What is this person like?” + te same kolory to za mało,
-            # gdy reszta zdania jest o kimś innym (BROCK vs ERIKA).
-            if not _covers_enough(seg_words, db_source, source):
+            # Uczciwy %: nie wyższy niż pokrycie słów treści. Wspólne pytanie
+            # i kolory nie dają 74% przy obcym dialogu (BROCK vs ERIKA).
+            if seg_words:
+                cov = len(seg_words & _content_words(db_source)) / len(seg_words)
+                sim = int(round(min(sim, cov * 100)))
+            if sim < threshold:
                 continue
             # Warianty tego samego źródła (np. BALL → KULA / PIŁKA / BAL)
             # pokazujemy jako osobne podpowiedzi — w kolejności z pliku TM.
