@@ -970,6 +970,10 @@ class EditorTab(QWidget):
         self._tm_timer = QTimer(self)
         self._tm_timer.setSingleShot(True)
         self._tm_timer.timeout.connect(self._refresh_helpers)
+        self._tm_upsert_timer = QTimer(self)
+        self._tm_upsert_timer.setSingleShot(True)
+        self._tm_upsert_timer.timeout.connect(self._flush_segment_tm)
+        self._tm_pending: set[int] = set()
         # Odstęp przed startem wyszukiwania. Jest ADAPTACYJNY: gdy poprzednie
         # szukanie było szybkie, ruszamy niemal natychmiast; gdy trwało długo
         # (bardzo duża pamięć), czekamy dłużej, by nie liczyć segmentów,
@@ -4328,6 +4332,10 @@ class EditorTab(QWidget):
         if (_settings.get_bool("lang.check.enabled", True)
                 and _settings.get_bool("lang.check.auto", True)):
             self._lang_timer.start(900)
+        # TM z tego segmentu: poczekaj chwilę; jak poprawisz błąd, stary wpis zniknie.
+        if _settings.get_bool("tm.auto.add", True):
+            self._tm_pending.add(self.current_index)
+            self._tm_upsert_timer.start(2500)
         seg = self.segments[self.current_index]
         seg.target = self.target_edit.toPlainText()
         if seg.target.strip() and seg.status in ("new", ""):
@@ -4396,11 +4404,7 @@ class EditorTab(QWidget):
         if settings.get_bool("tm.sentence.use.translated", False):
             volatile = []
             for i, sg in enumerate(self.segments):
-                # Szkice (wpisane, ale niezatwierdzone) NIE idą do TM —
-                # inaczej po skoku na inny segment własne błędy wracały jako dopasowanie.
                 if i == self.current_index or sg.ignored or not sg.is_translated:
-                    continue
-                if sg.status not in ("translated", "approved"):
                     continue
                 stamp = (sg.source, sg.target)
                 if self._volatile_sent.get(i) == stamp:
@@ -5284,6 +5288,30 @@ class EditorTab(QWidget):
             self.concordance_list.addItem("(brak wyników w pamięci TM)")
 
     # --------------------------------------------------------------- akcje
+    def _tm_origin_id(self, seg) -> str:
+        """Identyfikator wpisu TM pochodzącego z tego segmentu."""
+        return f"projekt|{(seg.file_name or '')}|{seg.seg_id}"
+
+    def _upsert_segment_tm(self, seg) -> None:
+        project = self.app.project
+        self.app.tm.upsert_from_segment(
+            seg.source, seg.target or "",
+            project.source_lang if project else "en",
+            project.target_lang if project else "pl",
+            origin_id=self._tm_origin_id(seg),
+        )
+
+    def _flush_segment_tm(self) -> None:
+        pending = list(getattr(self, "_tm_pending", set()))
+        self._tm_pending = set()
+        if not pending:
+            return
+        if 0 <= self.current_index < len(self.segments):
+            self._store_current()
+        for idx in pending:
+            if 0 <= idx < len(self.segments):
+                self._upsert_segment_tm(self.segments[idx])
+
     def save_to_tm(self, silent: bool = False, force: bool = False) -> None:
         seg = self.current_segment()
         if not seg:
@@ -5293,17 +5321,8 @@ class EditorTab(QWidget):
             if not silent:
                 self.info_label.setText("⚠️ Brak tłumaczenia do zapisania")
             return
-        # Szkic (sam wpis, bez zatwierdzenia) nie zaśmieca TM.
-        if not force and seg.status not in ("translated", "approved"):
-            if not silent:
-                self.info_label.setText("Zatwierdź segment (Ctrl+Enter), żeby zapisać do TM")
-            return
-        project = self.app.project
-        added = self.app.tm.add(
-            seg.source, seg.target,
-            project.source_lang if project else "en",
-            project.target_lang if project else "pl",
-        )
+        self._upsert_segment_tm(seg)
+        added = True
         if added and not silent:
             self.info_label.setText("💾 Zapisano segment do pamięci TM")
         # Nie odświeżamy tabeli TM, gdy zakładka jest niewidoczna – przebudowa

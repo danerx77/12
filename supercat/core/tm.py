@@ -284,16 +284,19 @@ class _Index:
         key = _norm_key(source)
         existing = self._by_key.get(key)
         if existing is not None and self.sources[existing] == source:
+            # Zapis z edytora: TYLKO aktualne tłumaczenie — stary błąd znika.
+            if not keep_variants:
+                self.targets[existing] = target
+                self.variants[existing] = [target]
+                if origin:
+                    self.origins[existing] = origin
+                return
             current = self.targets[existing]
             if target == current:
                 return
             variants = self.variants.setdefault(existing, [current])
             if target not in variants:
-                # Import z pliku: kolejność z pliku, nowy wariant na końcu.
-                # Zapis od tłumacza: jego wersja staje się główną podpowiedzią.
-                variants.insert(len(variants) if keep_variants else 0, target)
-            if not keep_variants:
-                self.targets[existing] = target
+                variants.append(target)
             return
         self._by_key[key] = len(self.sources)
         self.sources.append(source)
@@ -495,7 +498,10 @@ class TranslationMemory:
     def _origin_at(self, index: int) -> str:
         origins = getattr(self._index, "origins", None) or []
         if 0 <= index < len(origins) and origins[index]:
-            return os.path.basename(str(origins[index]))
+            raw = str(origins[index])
+            if raw.startswith("projekt|"):
+                return "pamięć projektu"
+            return os.path.basename(raw)
         return "pamięć projektu"
 
     def close(self) -> None:
@@ -609,6 +615,41 @@ class TranslationMemory:
         self._conn.commit()
         self._dirty = True
         return len(rows)
+
+    def upsert_from_segment(self, source: str, target: str,
+                            source_lang: str = "en", target_lang: str = "pl",
+                            origin_id: str = "") -> bool:
+        """Wpis z konkretnego segmentu: stary target znika, jest tylko nowy.
+
+        `origin_id` (np. projekt|plik|id) mówi, SKĄD wziął się ten wpis —
+        przy kolejnej zmianie kasujemy poprzednią wersję z tego segmentu.
+        """
+        if not self._conn:
+            return False
+        self._ensure_origin_column()
+        origin_id = (origin_id or "").strip() or "pamięć projektu"
+        source = (source or "").strip()
+        target = (target or "").strip()
+        if not source:
+            return False
+        self._conn.execute(
+            "DELETE FROM translation_memory WHERE origin = ?", (origin_id,))
+        if target:
+            self._conn.execute(
+                """
+                INSERT INTO translation_memory
+                    (source_text, target_text, source_lang, target_lang, usage_count, origin)
+                VALUES (?, ?, ?, ?, 1, ?)
+                """,
+                (source, target, source_lang, target_lang, origin_id),
+            )
+            with self._lock:
+                self._index.add(source, target, keep_variants=False, origin=origin_id)
+        else:
+            with self._lock:
+                self._dirty = True
+        self._deferred_commit()
+        return True
 
     def delete(self, source: str, target: str) -> None:
         if not self._conn:
@@ -874,7 +915,8 @@ class TranslationMemory:
                 existing = self._index._by_key.get(key)
                 if existing is not None and self._index.targets[existing] == target.strip():
                     continue
-                self._index.add(source.strip(), target.strip())
+                # Sesja: nadpisz, nie doklejaj starego błędnego wariantu.
+                self._index.add(source.strip(), target.strip(), keep_variants=False)
             # cache uzupełni się przyrostowo przy następnym wyszukiwaniu
 
     @staticmethod
