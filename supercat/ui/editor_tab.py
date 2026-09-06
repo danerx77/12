@@ -4751,6 +4751,9 @@ class EditorTab(QWidget):
         if first_kind == "TM + linie":
             self.sentence_info.setText(
                 f"TM + linie: całość z różnicami  •  {len(sentences)} propozycji")
+        elif first_kind == "TM + słowa":
+            self.sentence_info.setText(
+                f"TM + słowa: hasła z pamięci w miejscu  •  {len(sentences)} propozycji")
         else:
             self.sentence_info.setText(f"Znaleziono {len(sentences)} fragmentów zdań w TM")
         gloss = getattr(self.app, "glossary", None)
@@ -4810,7 +4813,7 @@ class EditorTab(QWidget):
             item.setToolTip(
                 f"{match.assembled}\n\n(fragment: {match.fragment_source}"
                 f" → {match.fragment_target}){origin_line}")
-            if getattr(match, "kind", "") == "TM + linie":
+            if getattr(match, "kind", "") in ("TM + linie", "TM + słowa"):
                 item.setForeground(QColor("#80cbc4"))
             elif getattr(match, "partial", False):
                 # Złożenie zostawia tekst źródłowy — na pomarańczowo, żeby nie

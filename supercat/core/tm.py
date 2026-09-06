@@ -31,6 +31,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .settings import SettingsManager
 from .tags import adapt_codes, adapt_translation, normalize_tags_for_comparison
+from .word_match import candidate_too_long, is_word_span
 
 try:  # numpy pozwala wybrać najlepsze wyniki bez sortowania całej macierzy
     import numpy as _np
@@ -1093,17 +1094,23 @@ class TranslationMemory:
                 scan = []
         for i in scan:
             needle = flats_all[i]
-            if len(needle) <= 3 or len(needle) >= flat_len:
+            # Równa długość (samo „MISTY”) jest OK; dłuższy wpis nie jest fragmentem.
+            if len(needle) <= 3 or len(needle) > flat_len:
                 continue
             start = flat.find(needle)
             if start < 0:
+                continue
+            if not is_word_span(flat, start, len(needle)):
                 continue
             db_source = self._index.sources[i]
             db_target = self._index.targets[i]
             if db_target in seen:
                 continue
-            # {SHADOW LIGHT_GRAY} nie jest zdaniem — nie składaj z „SHADOW → CIENISTY”.
-            if len(_content_words(db_source)) < 3:
+            # Same tagi ({SHADOW}) nie są hasłem. Jedno słowo (MISTY) — tak.
+            src_words = _content_words(db_source)
+            if not src_words:
+                continue
+            if candidate_too_long(len(_content_words(haystack)), len(src_words)):
                 continue
             if filter_untranslated and _is_mostly_untranslated(db_source, db_target):
                 continue
@@ -1205,20 +1212,24 @@ class TranslationMemory:
                             break
                 seen_sub.add(db_target)
                 coverage = int(round(len(flat) * 100 / max(len(db_flat), 1)))
-                if best_line is not None:
-                    shown = self.adapt_line_case(haystack, best_line[1])
-                    line_matches.append(
-                        SentenceMatch(best_line[0], best_line[1], _wrap(shown), coverage,
-                                      line_pairs=pairs, kind="linia z dłuższego wpisu",
-                                      origin=self._origin_at(i))
-                    )
-                else:
-                    shown = self.adapt_line_case(haystack, db_target)
-                    line_matches.append(
-                        SentenceMatch(db_source, db_target, _wrap(shown), coverage,
-                                      line_pairs=pairs, kind="segment w dłuższym wpisie",
-                                      origin=self._origin_at(i))
-                    )
+                if best_line is None:
+                    # „MISTY” w opisie sali to nie tłumaczenie segmentu MISTY.
+                    continue
+                line_flat = _flatten_text(best_line[0])
+                if line_flat != flat and not (
+                    len(flat) * 2 >= len(line_flat) and flat in line_flat
+                    and is_word_span(line_flat, line_flat.find(flat), len(flat))
+                ):
+                    continue
+                if candidate_too_long(len(_content_words(haystack)),
+                                      len(_content_words(best_line[0]))):
+                    continue
+                shown = self.adapt_line_case(haystack, best_line[1])
+                line_matches.append(
+                    SentenceMatch(best_line[0], best_line[1], _wrap(shown), coverage,
+                                  line_pairs=pairs, kind="linia z dłuższego wpisu",
+                                  origin=self._origin_at(i))
+                )
                 if len(line_matches) >= limit:
                     break
 
@@ -1235,7 +1246,10 @@ class TranslationMemory:
 
         found: List[SentenceMatch] = []
         for start, end, db_source, db_target in hits:
-            shown_target = self.adapt_case_to_source(haystack[start:end], db_target)
+            span = haystack[start:end]
+            shown_target = self.adapt_case_to_source(span, db_target)
+            if shown_target == span and len(_content_words(db_source)) <= 2:
+                continue
             assembled = _wrap(haystack[:start] + shown_target + haystack[end:])
             coverage = int(round((end - start) * 100 / max(len(haystack), 1)))
             found.append(SentenceMatch(db_source, db_target, assembled, coverage))
@@ -1315,7 +1329,51 @@ class TranslationMemory:
         if composed is not None:
             unique = [composed] + [m for m in unique if m.assembled != composed.assembled]
 
+        words = self._compose_tm_and_words(segment, hits)
+        if words is not None:
+            unique = [words] + [m for m in unique if m.assembled != words.assembled]
+
         return unique[:limit]
+
+    def _compose_tm_and_words(
+        self, segment: str, hits: List[Tuple[int, int, str, str]],
+    ) -> Optional[SentenceMatch]:
+        """Hasła z TM w miejscu (MISTY → MISTY), bez obcego akapitu.
+
+        Bierze krótkie wpisy, które są fragmentem segmentu, i składa jedną
+        propozycję. Długie zdania zostawia dopasowaniu zdań.
+        """
+        if not segment or not hits:
+            return None
+        chosen: List[Tuple[int, int, str, str]] = []
+        for hit in sorted(hits, key=lambda h: -(h[1] - h[0])):
+            src_n = len(_content_words(hit[2]))
+            if src_n < 1 or src_n > 6:
+                continue
+            if all(hit[1] <= c[0] or hit[0] >= c[1] for c in chosen):
+                chosen.append(hit)
+        if not chosen:
+            return None
+        combined = segment
+        covered = 0
+        pairs: List[Tuple[str, str]] = []
+        for start, end, src, tgt in sorted(chosen, key=lambda h: -h[0]):
+            shown = self.adapt_case_to_source(segment[start:end], tgt)
+            combined = combined[:start] + shown + combined[end:]
+            covered += end - start
+            pairs.append((src, shown))
+        if combined == segment:
+            return None
+        coverage = int(round(covered * 100 / max(len(segment), 1)))
+        coverage = min(100, max(coverage, 1))
+        wrap = wrap_to_source_widths(segment, combined) or combined
+        return SentenceMatch(
+            " + ".join(s for s, _t in pairs),
+            " + ".join(t for _s, t in pairs),
+            wrap, coverage,
+            line_pairs=pairs, kind="TM + słowa",
+            partial=(len(segment) - covered) > 8,
+        )
 
     def _compose_tm_and_lines(
         self, segment: str, line_matches: List[SentenceMatch],
@@ -1589,6 +1647,11 @@ class TranslationMemory:
 
             src_line, tgt_line = srcs[best_idx], tgts[best_idx]
             if filter_untranslated and _is_mostly_untranslated(src_line, tgt_line):
+                continue
+            # Same hasło (MISTY) — nie zdzieraj {COLOR} z całej linii na rzecz
+            # gołego wpisu TM; to robi panel TM i ścieżka słów.
+            if (len(_content_words(src_line)) <= 2
+                    and _content_words(src_line) == _content_words(seg_line)):
                 continue
             signature = f"{seg_line}\x00{tgt_line}"
             if signature in seen:
@@ -1941,7 +2004,11 @@ def _covers_enough(seg_words: set, candidate: str, segment_line: str) -> bool:
         # Sama cyfra albo znak („1”, „…”) — tylko pełna zgodność, inaczej
         # z pamięci wyskakują zupełnie obce zdania (tzw. wydmuszki).
         return (segment_line or "").strip().lower() == (candidate or "").strip().lower()
-    covered = len(seg_words & _content_words(candidate))
+    cand_words = _content_words(candidate)
+    # MISTY nie jest salą CERULEAN — akapit z TM nie tłumaczy krótkiego hasła.
+    if candidate_too_long(len(seg_words), len(cand_words)):
+        return False
+    covered = len(seg_words & cand_words)
     # Jedno wspólne słowo to za mało („1” i „just one”); przy krótkiej linii
     # jedynego słowa nie da się wymagać dwóch.
     if covered < (2 if len(seg_words) >= 2 else 1):
