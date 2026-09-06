@@ -606,7 +606,12 @@ class ExpandingSplitter(QSplitter):
         sizes = [max(0, int(v)) for v in sizes]
         extra = self.handleWidth() * max(0, self.count() - 1)
         height = sum(sizes) + extra
-        self.setMinimumHeight(max(1, height))
+        if getattr(self, "_soft_min", False):
+            # Dolny pas: treść może być wyższa niż okno (suwak), ale
+            # NIE blokuje zmniejszania pasa.
+            self.setMinimumHeight(max(1, int(getattr(self, "_panel_min", 80))))
+        else:
+            self.setMinimumHeight(max(1, height))
         self.resize(max(1, self.width()), max(1, height))
         self.setSizes(sizes)
 
@@ -879,7 +884,7 @@ class BandHeightGrip(QFrame):
             return
         dy = int(self._drag_y - event.globalPosition().y())
         total = self._sizes[0] + self._sizes[1]
-        bottom = max(90, min(self._sizes[1] + dy, total - 140))
+        bottom = max(70, min(self._sizes[1] + dy, total - 100))
         top = total - bottom
         root.setSizes([top, bottom])
         self._editor._sync_below_stack_size()
@@ -1537,7 +1542,7 @@ class EditorTab(QWidget):
         self._root_split.setStretchFactor(1, 2)
         self._root_split.setHandleWidth(10)
         self._root_split.setCollapsible(0, True)
-        self._root_split.setCollapsible(1, False)
+        self._root_split.setCollapsible(1, True)
         from ..ui.theme import style_splitter_handle
         handle = self._root_split.handle(1)
         style_splitter_handle(handle)
@@ -2423,7 +2428,7 @@ class EditorTab(QWidget):
         if getattr(self, "_below_grip", None) is not None:
             self._below_grip.show()
         host.setMaximumHeight(16777215)
-        host.setMinimumHeight(90)
+        host.setMinimumHeight(64)
         host.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         by_key = {key: (title, w, key) for title, w, key in visible_below}
@@ -2441,22 +2446,24 @@ class EditorTab(QWidget):
             return
 
         preferred = self._right_panel_preferred_height()
+        row_min = 72
         outer = ExpandingSplitter(Qt.Orientation.Vertical)
-        outer._panel_min = preferred
+        outer._panel_min = row_min
+        outer._soft_min = True
         outer.setChildrenCollapsible(False)
         outer.setHandleWidth(max(8, outer.handleWidth()))
         for row in rows:
             hs = QSplitter(Qt.Orientation.Horizontal)
             hs.setChildrenCollapsible(False)
             hs.setHandleWidth(max(8, hs.handleWidth()))
-            hs.setMinimumHeight(preferred)
+            hs.setMinimumHeight(row_min)
             hs.setMaximumHeight(16777215)
             hs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             for key in row:
                 title, w, _k = by_key[key]
                 grp = DockableGroup(title, key, self)
                 grp.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-                grp.setMinimumHeight(preferred)
+                grp.setMinimumHeight(row_min)
                 grp.setMaximumHeight(16777215)
                 gl = QVBoxLayout(grp)
                 gl.setContentsMargins(8, 8, 8, 8)
@@ -2473,10 +2480,10 @@ class EditorTab(QWidget):
         tail.setMaximumHeight(0)
         outer.addWidget(tail)
         outer.setCollapsible(outer.count() - 1, True)
-        mins = [preferred] * (outer.count() - 1) + [0]
+        mins = [row_min] * (outer.count() - 1) + [0]
         setup_splitter(outer, minimums=mins)
         outer.setCollapsible(outer.count() - 1, True)
-        init = [preferred] * (outer.count() - 1) + [0]
+        init = [max(row_min, preferred)] * (outer.count() - 1) + [0]
         outer.setSizes(init)
 
         scroll = QScrollArea()
@@ -2492,7 +2499,7 @@ class EditorTab(QWidget):
         self._below_stack = outer
         self._below_scroll = scroll
         extra = outer.handleWidth() * max(0, outer.count() - 1)
-        outer.setMinimumHeight(preferred * max(1, len(rows)) + extra)
+        outer.setMinimumHeight(row_min)
         outer.splitterMoved.connect(lambda *_a: self._sync_below_stack_size())
         self._sync_below_stack_size()
         root = getattr(self, "_root_split", None)
@@ -2508,7 +2515,7 @@ class EditorTab(QWidget):
         scroll = getattr(self, "_below_scroll", None)
         if stack is None or not stack.count():
             return
-        preferred = self._right_panel_preferred_height()
+        row_min = int(getattr(stack, "_panel_min", 72) or 72)
         extra = stack.handleWidth() * max(0, stack.count() - 1)
         raw = list(stack.sizes())
         sizes = []
@@ -2520,12 +2527,12 @@ class EditorTab(QWidget):
                 sizes.append(0)
                 continue
             if child is not None:
-                child.setMinimumHeight(preferred)
+                child.setMinimumHeight(row_min)
             real += 1
             if index < len(raw) and raw[index] > 0:
-                sizes.append(max(preferred, int(raw[index])))
+                sizes.append(max(row_min, int(raw[index])))
             else:
-                sizes.append(preferred)
+                sizes.append(row_min)
         content = sum(sizes) + extra
         width = stack.width() or self.width()
         viewport_h = 0
@@ -2553,7 +2560,7 @@ class EditorTab(QWidget):
             sizes = filled
             content = sum(sizes) + extra
         height = max(content, viewport_h or content)
-        stack.setMinimumHeight(max(content, 1))
+        stack.setMinimumHeight(row_min)
         if stack.width() != width or stack.height() != height:
             stack.resize(max(1, width), max(1, height))
         if list(stack.sizes()) != sizes:
