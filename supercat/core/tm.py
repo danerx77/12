@@ -645,7 +645,7 @@ class TranslationMemory:
             try:
                 self._conn.execute(
                     """
-                    INSERT INTO translation_memory
+                    INSERT OR REPLACE INTO translation_memory
                         (source_text, target_text, source_lang, target_lang, usage_count, origin)
                     VALUES (?, ?, ?, ?, 1, ?)
                     """,

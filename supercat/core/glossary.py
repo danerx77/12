@@ -150,12 +150,17 @@ class Glossary:
                 continue
             if src.lower() == tgt.lower():
                 continue
-            result = re.sub(
-                rf"(?<!\w){re.escape(src)}(?!\w)",
-                lambda _m, repl=tgt: repl,
-                result,
-                flags=re.IGNORECASE,
-            )
+            needles = [src]
+            trimmed = src.rstrip(" ?.!…")
+            if trimmed != src and len(trimmed) >= 2:
+                needles.append(trimmed)
+            for needle in needles:
+                result = re.sub(
+                    rf"(?<!\w){re.escape(needle)}(?!\w)",
+                    lambda _m, repl=tgt: repl,
+                    result,
+                    flags=re.IGNORECASE,
+                )
         return result
 
     def search(self, query: str, in_source: bool = True, in_target: bool = True) -> List[GlossaryEntry]:

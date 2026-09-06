@@ -3633,7 +3633,17 @@ class EditorTab(QWidget):
         seg = self.segments[index]
         file_changed = self._sync_files_list_to_segment(seg.file_name or "(bez pliku)")
         self.source_edit.setPlainText(seg.source)
-        self.target_edit.setPlainText(seg.target)
+        tgt = seg.target or ""
+        gloss = getattr(self.app, "glossary", None)
+        if gloss is not None and tgt:
+            try:
+                patched = gloss.replace_in_text(tgt)
+            except Exception:
+                patched = tgt
+            if patched != tgt:
+                seg.target = patched
+                tgt = patched
+        self.target_edit.setPlainText(tgt)
         self.notes_edit.setPlainText(seg.notes)
         edges = describe_edges(seg.source)
         edge_note = f"  •  ␣ wcięcie: {edges}" if edges else ""
@@ -5707,12 +5717,15 @@ class EditorTab(QWidget):
 
     def _upsert_segment_tm(self, seg) -> None:
         project = self.app.project
-        self.app.tm.upsert_from_segment(
-            seg.source, seg.target or "",
-            project.source_lang if project else "en",
-            project.target_lang if project else "pl",
-            origin_id=self._tm_origin_id(seg),
-        )
+        try:
+            self.app.tm.upsert_from_segment(
+                seg.source, seg.target or "",
+                project.source_lang if project else "en",
+                project.target_lang if project else "pl",
+                origin_id=self._tm_origin_id(seg),
+            )
+        except Exception:
+            pass
 
     def _flush_segment_tm(self) -> None:
         pending = list(getattr(self, "_tm_pending", set()))
