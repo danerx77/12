@@ -4316,6 +4316,9 @@ class EditorTab(QWidget):
             return
         # odśwież podświetlenie wcięcia (użytkownik mógł je skasować lub dopisać)
         self._ws_timer.start(150)
+        # Gruba falka zostawała po poprawce aż do kliknięcia — zdejmij
+        # od razu to, czego już nie ma w tekście, nie czekaj 900 ms.
+        self._prune_stale_lang_issues()
         _settings = SettingsManager.instance()
         if (_settings.get_bool("lang.check.enabled", True)
                 and _settings.get_bool("lang.check.auto", True)):
@@ -4920,6 +4923,8 @@ class EditorTab(QWidget):
                 self._apply_target_selections()
             except Exception:
                 pass
+        if hasattr(self, "target_edit"):
+            self.target_edit.viewport().update()
 
     def _on_suggestions_ready(self, index: int, issues: list) -> None:
         """Uzupełnia listę uwag o doliczone w tle propozycje."""
@@ -4937,8 +4942,41 @@ class EditorTab(QWidget):
             if issue.suggestions:
                 item.setToolTip("Kliknij dwukrotnie, aby wstawić: " + issue.suggestions[0])
 
+    def _prune_stale_lang_issues(self) -> None:
+        """Usuwa podkreślenia, których fragmentu już nie ma w tłumaczeniu."""
+        issues = getattr(self, "_lang_issues", None) or []
+        if not issues or not hasattr(self, "target_edit"):
+            return
+        body = self.target_edit.toPlainText()
+        kept = []
+        for issue in issues:
+            try:
+                start = int(getattr(issue, "offset", -1))
+                length = int(getattr(issue, "length", 0) or 0)
+            except (TypeError, ValueError):
+                start, length = -1, 0
+            fragment = getattr(issue, "fragment", "") or ""
+            if start >= 0 and length > 0 and start + length <= len(body):
+                if body[start:start + length] == fragment or not fragment:
+                    kept.append(issue)
+                    continue
+            if fragment:
+                found = re.search(rf"(?<!\w){re.escape(fragment)}(?!\w)", body)
+                if found:
+                    try:
+                        issue.offset = found.start()
+                        issue.length = found.end() - found.start()
+                    except Exception:
+                        pass
+                    kept.append(issue)
+        if len(kept) == len(issues):
+            return
+        self._lang_issues = kept
+        self.highlight_language_issues(kept)
+
     def clear_language_highlight(self) -> None:
         """Zdejmuje podkreślenia błędów językowych z pola tłumaczenia."""
+        self._lang_issues = []
         self._lang_selections = []
         self._apply_target_selections()
         if hasattr(self, "target_edit"):
