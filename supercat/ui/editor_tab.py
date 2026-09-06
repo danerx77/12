@@ -687,12 +687,13 @@ class DockableGroup(QGroupBox):
         self._panel_key = key
         self._editor = editor
         self._drag_start: QPoint | None = None
+        self._drop_side: str | None = None
         self.setAcceptDrops(True)
         self.setProperty("sc_panel_key", key)
         self.setCursor(Qt.CursorShape.SizeAllCursor)
         self.setToolTip(
-            "Chwyć tytuł i przeciągnij.\n"
-            "Na dół = cała szerokość. Na lewą/prawą stronę panelu = obok.\n"
+            "Chwyć tytuł i przeciągnij. Podświetlenie pokazuje, co się stanie:\n"
+            "bok = obok, góra/dół = kolejność (jeden pod drugim).\n"
             "Prawy przycisk — menu miejsca.")
 
     def _title_height(self) -> int:
@@ -724,29 +725,99 @@ class DockableGroup(QGroupBox):
     def dragEnterEvent(self, event) -> None:  # noqa: N802
         if event.mimeData().hasFormat(PANEL_MIME):
             event.acceptProposedAction()
+            self._set_drop_side(event)
         else:
             event.ignore()
 
+    def dragMoveEvent(self, event) -> None:  # noqa: N802
+        if event.mimeData().hasFormat(PANEL_MIME):
+            event.acceptProposedAction()
+            self._set_drop_side(event)
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event) -> None:  # noqa: N802
+        self._drop_side = None
+        self.update()
+        super().dragLeaveEvent(event)
+
+    def _set_drop_side(self, event) -> None:
+        zone = self._editor.panel_zone(self._panel_key)
+        if zone != "below":
+            self._drop_side = "before"
+        else:
+            self._drop_side = self._side_at(event.position())
+        self.update()
+
+    def _side_at(self, pos) -> str:
+        w = max(1.0, float(self.width()))
+        h = max(1.0, float(self.height()))
+        x, y = float(pos.x()), float(pos.y())
+        # Wąskie pasy po bokach = obok; środek / góra / dół = kolejność.
+        if x < w * 0.20:
+            return "left"
+        if x > w * 0.80:
+            return "right"
+        if y < h * 0.40:
+            return "above"
+        return "below"
+
     def dropEvent(self, event) -> None:  # noqa: N802
         raw = bytes(event.mimeData().data(PANEL_MIME)).decode("utf-8")
+        side = self._drop_side
+        self._drop_side = None
+        self.update()
         if raw and raw != self._panel_key:
             zone = self._editor.panel_zone(self._panel_key)
             if zone == "below":
-                pos = event.position()
-                w = max(1.0, float(self.width()))
-                h = max(1.0, float(self.height()))
-                if pos.x() < w * 0.35:
-                    side = "left"
-                elif pos.x() > w * 0.65:
-                    side = "right"
-                elif pos.y() < h * 0.35:
-                    side = "above"
-                else:
-                    side = "below"
-                self._editor.place_panel(raw, zone="below", beside=self._panel_key, side=side)
+                self._editor.place_panel(
+                    raw, zone="below", beside=self._panel_key,
+                    side=side or self._side_at(event.position()))
             else:
                 self._editor.place_panel(raw, zone=zone, before=self._panel_key)
         event.acceptProposedAction()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        super().paintEvent(event)
+        side = self._drop_side
+        if not side:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        rect = self.rect()
+        labels = {
+            "left": "Obok ←",
+            "right": "Obok →",
+            "above": "Nad (kolejność)",
+            "below": "Pod (kolejność)",
+            "before": "Tutaj (kolejność)",
+        }
+        colors = {
+            "left": QColor(66, 165, 245, 110),
+            "right": QColor(66, 165, 245, 110),
+            "above": QColor(255, 183, 77, 120),
+            "below": QColor(255, 183, 77, 120),
+            "before": QColor(129, 199, 132, 110),
+        }
+        band = QColor(colors.get(side, QColor(255, 255, 255, 80)))
+        area = rect
+        thick = max(28, int(min(rect.width(), rect.height()) * 0.22))
+        if side == "left":
+            area = rect.adjusted(0, 0, thick - rect.width(), 0)
+        elif side == "right":
+            area = rect.adjusted(rect.width() - thick, 0, 0, 0)
+        elif side == "above":
+            area = rect.adjusted(0, 0, 0, thick - rect.height())
+        elif side == "below":
+            area = rect.adjusted(0, rect.height() - thick, 0, 0)
+        painter.fillRect(area, band)
+        painter.setPen(QColor(255, 255, 255, 230))
+        font = QFont(self.font())
+        font.setBold(True)
+        font.setPointSize(max(10, font.pointSize() + 1))
+        painter.setFont(font)
+        painter.drawText(rect, int(Qt.AlignmentFlag.AlignCenter), labels.get(side, side))
+        painter.end()
 
     def contextMenuEvent(self, event) -> None:  # noqa: N802
         menu = QMenu(self)
@@ -783,15 +854,35 @@ class PanelDropHost(QWidget):
         super().__init__(parent)
         self._editor = editor
         self._zone = zone
+        self._armed = False
         self.setAcceptDrops(True)
 
+    def _arm(self, on: bool) -> None:
+        self._armed = on
+        self.setStyleSheet(
+            "PanelDropHost { border: 2px dashed #42a5f5; background: rgba(66,165,245,40); }"
+            if on else "")
+        self.update()
+
     def dragEnterEvent(self, event) -> None:  # noqa: N802
+        if event.mimeData().hasFormat(PANEL_MIME):
+            event.acceptProposedAction()
+            self._arm(True)
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event) -> None:  # noqa: N802
         if event.mimeData().hasFormat(PANEL_MIME):
             event.acceptProposedAction()
         else:
             event.ignore()
 
+    def dragLeaveEvent(self, event) -> None:  # noqa: N802
+        self._arm(False)
+        super().dragLeaveEvent(event)
+
     def dropEvent(self, event) -> None:  # noqa: N802
+        self._arm(False)
         raw = bytes(event.mimeData().data(PANEL_MIME)).decode("utf-8")
         if raw:
             self._editor.place_panel(raw, zone=self._zone)
@@ -1374,8 +1465,8 @@ class EditorTab(QWidget):
         below_l.setContentsMargins(4, 2, 4, 4)
         below_l.setSpacing(4)
         self._below_hint = QLabel(
-            "⬇ Upuść tu panel na całą szerokość. "
-            "Upuść na lewą/prawą stronę innego panelu, żeby stał obok.")
+            "⬇ Upuść tu: cała szerokość. Podświetlenie przy przeciąganiu: "
+            "bok = obok, góra/dół = kolejność. Suwak, gdy paneli jest więcej.")
         self._below_hint.setWordWrap(True)
         self._below_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._below_hint.setStyleSheet("color: gray; font-size: 11px; padding: 4px;")
@@ -1412,6 +1503,10 @@ class EditorTab(QWidget):
         if (event.type() == QEvent.Type.Resize and container is not None
                 and obj in (container, getattr(container, "viewport", lambda: None)())):
             self._sync_right_stack_size()
+        below_scroll = getattr(self, "_below_scroll", None)
+        if (event.type() == QEvent.Type.Resize and below_scroll is not None
+                and obj in (below_scroll, getattr(below_scroll, "viewport", lambda: None)())):
+            self._sync_below_stack_size()
         if event.type() in (QEvent.Type.DragEnter, QEvent.Type.Drop) and obj is container:
             mime = getattr(event, "mimeData", lambda: None)()
             if mime is not None and mime.hasFormat(PANEL_MIME):
@@ -2251,6 +2346,7 @@ class EditorTab(QWidget):
                 widget.setParent(None)
                 widget.deleteLater()
         self._below_stack = None
+        self._below_scroll = None
         if not visible_below:
             self._below_hint.show()
             host.setMinimumHeight(28)
@@ -2279,17 +2375,22 @@ class EditorTab(QWidget):
         if not rows:
             return
 
-        outer = QSplitter(Qt.Orientation.Vertical)
+        preferred = self._right_panel_preferred_height()
+        outer = ExpandingSplitter(Qt.Orientation.Vertical)
+        outer._panel_min = preferred
         outer.setChildrenCollapsible(False)
         outer.setHandleWidth(max(8, outer.handleWidth()))
         for row in rows:
             hs = QSplitter(Qt.Orientation.Horizontal)
             hs.setChildrenCollapsible(False)
             hs.setHandleWidth(max(8, hs.handleWidth()))
+            hs.setMinimumHeight(preferred)
+            hs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
             for key in row:
                 title, w, _k = by_key[key]
                 grp = DockableGroup(title, key, self)
                 grp.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+                grp.setMinimumHeight(preferred)
                 gl = QVBoxLayout(grp)
                 gl.setContentsMargins(8, 8, 8, 8)
                 gl.setSpacing(6)
@@ -2298,22 +2399,77 @@ class EditorTab(QWidget):
             for i in range(hs.count()):
                 hs.setStretchFactor(i, 1)
                 hs.setCollapsible(i, False)
-            # Jeden panel w rzędzie = cała szerokość okna.
             outer.addWidget(hs)
-        for i in range(outer.count()):
-            outer.setStretchFactor(i, 1)
-        layout.addWidget(outer, 1)
+        tail = QWidget()
+        tail.setObjectName("sc_right_tail")
+        tail.setMinimumHeight(0)
+        tail.setMaximumHeight(0)
+        outer.addWidget(tail)
+        outer.setCollapsible(outer.count() - 1, True)
+        mins = [preferred] * (outer.count() - 1) + [0]
+        setup_splitter(outer, minimums=mins)
+        outer.setCollapsible(outer.count() - 1, True)
+        init = [preferred] * (outer.count() - 1) + [0]
+        outer.setSizes(init)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(False)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setWidget(outer)
+        scroll.installEventFilter(self)
+        if scroll.viewport() is not None:
+            scroll.viewport().installEventFilter(self)
+        layout.addWidget(scroll, 1)
         self._below_stack = outer
+        self._below_scroll = scroll
+        extra = outer.handleWidth() * max(0, outer.count() - 1)
+        outer.setMinimumHeight(preferred * max(1, len(rows)) + extra)
+        outer.splitterMoved.connect(lambda *_a: self._sync_below_stack_size())
+        self._sync_below_stack_size()
         root = getattr(self, "_root_split", None)
         if root is not None and root.count() == 2:
             sizes = root.sizes()
             total = sum(sizes) or 700
-            if sizes[1] < 140:
-                root.setSizes([max(240, total - 220), 220])
+            if sizes[1] < 160:
+                root.setSizes([max(240, total - 240), 240])
 
     def _sync_below_stack_size(self) -> None:
-        # Pas dolny sam wypełnia szerokość okna (root splitter).
-        return
+        """Suwak na dole: panele zachowują wysokość, nadmiar się przewija."""
+        stack = getattr(self, "_below_stack", None)
+        scroll = getattr(self, "_below_scroll", None)
+        if stack is None or not stack.count():
+            return
+        preferred = self._right_panel_preferred_height()
+        extra = stack.handleWidth() * max(0, stack.count() - 1)
+        raw = list(stack.sizes())
+        sizes = []
+        real = 0
+        for index in range(stack.count()):
+            child = stack.widget(index)
+            dummy = (child is not None and child.objectName() == "sc_right_tail")
+            if dummy:
+                sizes.append(0)
+                continue
+            if child is not None:
+                child.setMinimumHeight(preferred)
+            real += 1
+            if index < len(raw) and raw[index] > 0:
+                sizes.append(max(preferred, int(raw[index])))
+            else:
+                sizes.append(preferred)
+        height = sum(sizes) + extra
+        width = stack.width() or self.width()
+        if scroll is not None and scroll.viewport() is not None:
+            vw = scroll.viewport().width()
+            if vw > 0:
+                width = vw
+        stack.setMinimumHeight(height)
+        if stack.width() != width or stack.height() != height:
+            stack.resize(max(1, width), height)
+        if list(stack.sizes()) != sizes:
+            stack.setSizes(sizes)
 
     def apply_panel_layout(self) -> None:
         """Układa panele po prawej: wszystko naraz (stacked) lub zakładki.
