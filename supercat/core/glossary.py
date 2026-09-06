@@ -133,6 +133,31 @@ class Glossary:
         found.sort(key=lambda e: len(e.source), reverse=True)
         return found
 
+    def replace_in_text(self, text: str) -> str:
+        """Podmienia w tekście terminy źródłowe na tłumaczenia (cały projekt).
+
+        Jak w OmegaT: glosariusz jest jeden na projekt. Dłuższe frazy pierwsze,
+        żeby „What is this person like?” nie rozbiło się na pojedyncze słowa.
+        """
+        if not text or not self.entries:
+            return text
+        result = text
+        terms = sorted(self.entries, key=lambda e: len(e.source or ""), reverse=True)
+        for entry in terms:
+            src = (entry.source or "").strip()
+            tgt = (entry.target or "").strip()
+            if len(src) < 2 or not tgt:
+                continue
+            if src.lower() == tgt.lower():
+                continue
+            result = re.sub(
+                rf"(?<!\w){re.escape(src)}(?!\w)",
+                lambda _m, repl=tgt: repl,
+                result,
+                flags=re.IGNORECASE,
+            )
+        return result
+
     def search(self, query: str, in_source: bool = True, in_target: bool = True) -> List[GlossaryEntry]:
         q = (query or "").lower().strip()
         if not q:

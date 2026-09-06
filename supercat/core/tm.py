@@ -54,7 +54,7 @@ _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 #: Bez tego progu jednowyrazowy wpis („System”) uchodził za dopasowanie całej
 #: linii („GIFT System.”) i wypierał sensowne podpowiedzi. Sama proporcja
 #: długości tu nie wystarcza – rozstrzyga dopiero pokrycie słów.
-_MIN_LINE_WORD_COVERAGE = 0.75
+_MIN_LINE_WORD_COVERAGE = 0.6
 
 
 @dataclass
@@ -637,14 +637,22 @@ class TranslationMemory:
         self._conn.execute(
             "DELETE FROM translation_memory WHERE origin = ?", (origin_id,))
         if target:
+            # Ta sama para mogła już być z innego pliku TM — UNIQUE(source,target).
             self._conn.execute(
-                """
-                INSERT INTO translation_memory
-                    (source_text, target_text, source_lang, target_lang, usage_count, origin)
-                VALUES (?, ?, ?, ?, 1, ?)
-                """,
-                (source, target, source_lang, target_lang, origin_id),
+                "DELETE FROM translation_memory WHERE source_text = ? AND target_text = ?",
+                (source, target),
             )
+            try:
+                self._conn.execute(
+                    """
+                    INSERT INTO translation_memory
+                        (source_text, target_text, source_lang, target_lang, usage_count, origin)
+                    VALUES (?, ?, ?, ?, 1, ?)
+                    """,
+                    (source, target, source_lang, target_lang, origin_id),
+                )
+            except sqlite3.IntegrityError:
+                pass
             with self._lock:
                 self._index.add(source, target, keep_variants=False, origin=origin_id)
         else:
@@ -1084,9 +1092,6 @@ class TranslationMemory:
             # przelicz pozycje z tekstu spłaszczonego na oryginalny
             orig_start = flat_to_orig[start]
             orig_end = flat_to_orig[start + len(needle) - 1] + 1
-            span_len = max(1, orig_end - orig_start)
-            if len(db_target) > span_len * 2 + 24:
-                continue
             # To samo miejsce w segmencie może mieć kilka wpisów TM („Wild →
             # Dziki” i „WILD → Wrog”) — zostawiamy jedno (dłuższe), bo reszta
             # to dla tłumacza szum zamiast pomocy.
@@ -1126,7 +1131,6 @@ class TranslationMemory:
                 seen_line_pairs.add(signature)
                 k = flat.find(db_flat)
                 shown_target = db_target
-                span_text = db_source
                 if k >= 0:
                     orig_s = flat_to_orig[k]
                     orig_e = flat_to_orig[k + len(db_flat) - 1] + 1
@@ -1136,12 +1140,6 @@ class TranslationMemory:
                         shown_target = self.adapt_line_case(span_text, db_target)
                     else:
                         shown_target = self.adapt_case_to_source(span_text, db_target)
-                # Krótki nagłówek („Family and friends?”) nie może dostać
-                # cudzego wieloakapitowego tłumaczenia – to rozjeżdża tekst.
-                if shown_target and span_text and len(shown_target) > len(span_text) * 2 + 24:
-                    continue
-                if shown_target and len(shown_target) > len(haystack) * 1.35 + 24:
-                    continue
                 assembled = _replace_flat_span(haystack, flat, flat_to_orig, db_flat, shown_target)
                 coverage = int(round(len(db_flat) * 100 / max(len(flat), 1)))
                 line_matches.append(
@@ -1288,11 +1286,7 @@ class TranslationMemory:
 
         composed = self._compose_tm_and_lines(segment, unique, should_cancel)
         if composed is not None:
-            rest = [m for m in unique if m.assembled != composed.assembled]
-            if composed.partial:
-                unique = rest + [composed]
-            else:
-                unique = [composed] + rest
+            unique = [composed] + [m for m in unique if m.assembled != composed.assembled]
 
         return unique[:limit]
 
@@ -1320,15 +1314,14 @@ class TranslationMemory:
         aligned: dict[str, str] = {}
         whole_origin = ""
         try:
-            wholes = self.find_fuzzy_matches(segment, threshold=80, limit=3)
+            wholes = self.find_fuzzy_matches(segment, threshold=50, limit=3)
         except Exception:
             wholes = []
-        if wholes and getattr(wholes[0], "similarity", 0) >= 80:
+        if wholes:
             best = wholes[0]
             whole_origin = (getattr(best, "origin", "") or "").strip()
             for src_l, tgt_l in align_lines(best.original_source, best.original_target):
-                if tgt_l and len(tgt_l) <= len(src_l) * 2 + 24:
-                    aligned[_flat(src_l)] = tgt_l
+                aligned[_flat(src_l)] = tgt_l
 
         from_lines: dict[str, str] = {}
         for match in line_matches:
@@ -1404,19 +1397,15 @@ class TranslationMemory:
 
         if not used_other:
             return None
-        if assembled and len(assembled) > len(segment) * 1.4 + 24:
-            return None
         coverage = int(round(
             sum(len(t) for _s, t in pairs if t != _s) * 100 / max(len(segment), 1)))
         coverage = min(100, max(coverage, 1))
         partial = any(o == "—" or _is_mostly_untranslated(s, t) for (s, t), o in zip(pairs, origins))
-        if partial:
-            return None
         return SentenceMatch(
             segment, assembled, assembled, coverage,
             line_pairs=pairs, line_origins=origins,
             kind="TM + linie", origin=whole_origin,
-            partial=False,
+            partial=partial,
         )
 
     def _fuzzy_line_matches(self, segment: str, filter_untranslated: bool,
@@ -1536,9 +1525,7 @@ class TranslationMemory:
                     # tylko dlatego, że WRatio wysoko ocenia dopasowanie częściowe.
                     if not _covers_enough(seg_words, cand, flat_seg):
                         continue
-                    if not _similar_len(flat_seg, cand):
-                        continue
-                    score = _rf_fuzz.ratio(flat_seg, cand)
+                    score = _rf_fuzz.WRatio(flat_seg, cand)
                     if score >= threshold and score > best_score:
                         best_score, best_idx = int(round(score)), i
                 best_per_line.append((best_score, best_idx))
@@ -1575,8 +1562,6 @@ class TranslationMemory:
 
             src_line, tgt_line = srcs[best_idx], tgts[best_idx]
             if filter_untranslated and _is_mostly_untranslated(src_line, tgt_line):
-                continue
-            if tgt_line and len(tgt_line) > len(seg_line) * 2.2 + 24:
                 continue
             signature = f"{seg_line}\x00{tgt_line}"
             if signature in seen:
@@ -1911,18 +1896,8 @@ def _match_words(text: str) -> set:
             if len(w) >= 2 and any(c.isalpha() for c in w)}
 
 
-def _similar_len(a: str, b: str, min_ratio: float = 0.55) -> bool:
-    """Odrzuca dopasowanie krótkiej linii do cudzego długiego akapitu."""
-    na, nb = len(a or ""), len(b or "")
-    if na < 1 or nb < 1:
-        return False
-    return min(na, nb) / max(na, nb) >= min_ratio
-
-
 def _covers_enough(seg_words: set, candidate: str, segment_line: str) -> bool:
     """Czy kandydat z TM ma prawo uchodzić za dopasowanie tej linii."""
-    if not _similar_len(segment_line or "", candidate or ""):
-        return False
     if not seg_words:
         # Sama cyfra albo znak („1”, „…”) — tylko pełna zgodność, inaczej
         # z pamięci wyskakują zupełnie obce zdania (tzw. wydmuszki).

@@ -1350,10 +1350,14 @@ class EditorTab(QWidget):
         terms_box = QWidget()
         tb_layout = QVBoxLayout(terms_box)
         tb_layout.setContentsMargins(4, 4, 4, 4)
-        terms_hint = QLabel("Glosariusz — wpisz parę albo 2× klik na terminie, żeby wstawić")
+        terms_hint = QLabel("Glosariusz projektu (wszystkie segmenty) — 2× klik wstawia w zdanie")
         terms_hint.setWordWrap(True)
         terms_hint.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         tb_layout.addWidget(terms_hint)
+        self.gloss_search = QLineEdit()
+        self.gloss_search.setPlaceholderText("szukaj w całym glosariuszu…")
+        self.gloss_search.textChanged.connect(self._refresh_terms)
+        tb_layout.addWidget(self.gloss_search)
         gloss_row = QHBoxLayout()
         self.gloss_src = QLineEdit()
         self.gloss_src.setPlaceholderText("źródło…")
@@ -1379,6 +1383,13 @@ class EditorTab(QWidget):
         add_term_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         add_term_btn.clicked.connect(self._add_selection_to_glossary)
         tb_layout.addWidget(add_term_btn)
+        apply_gloss = QPushButton("⤵ Wstaw trafienia w zdanie")
+        apply_gloss.setToolTip(
+            "Podmienia w tłumaczeniu wszystkie terminy z glosariusza,\n"
+            "które jeszcze zostały po źródłemu (jak w OmegaT).")
+        apply_gloss.setMinimumHeight(32)
+        apply_gloss.clicked.connect(self._apply_glossary_to_target)
+        tb_layout.addWidget(apply_gloss)
         _right_panel("🏷️ Glosariusz", terms_box, "terms")
 
         self.concordance_list = QListWidget()
@@ -4578,7 +4589,7 @@ class EditorTab(QWidget):
         except Exception:
             pass
 
-    def set_target_text(self, text: str) -> None:
+    def set_target_text(self, text: str, apply_glossary: bool = True) -> None:
         if not text:
             return
         # Podpowiedzi z TM/MT wracają przycięte, a w pliku źródłowym wiodąca
@@ -4587,6 +4598,11 @@ class EditorTab(QWidget):
             seg = self.current_segment()
             if seg is not None:
                 text = copy_edge_whitespace(seg.source, text)
+        if apply_glossary and getattr(self.app, "glossary", None) is not None:
+            try:
+                text = self.app.glossary.replace_in_text(text)
+            except Exception:
+                pass
         self.target_edit.setPlainText(text)
         self._on_target_changed()
 
@@ -4735,7 +4751,17 @@ class EditorTab(QWidget):
                 f"TM + linie: całość z różnicami  •  {len(sentences)} propozycji")
         else:
             self.sentence_info.setText(f"Znaleziono {len(sentences)} fragmentów zdań w TM")
+        gloss = getattr(self.app, "glossary", None)
         for match in sentences:
+            if gloss is not None:
+                try:
+                    match.assembled = gloss.replace_in_text(match.assembled)
+                    if match.line_pairs:
+                        match.line_pairs = [
+                            (src, gloss.replace_in_text(tgt)) for src, tgt in match.line_pairs
+                        ]
+                except Exception:
+                    pass
             # Na ekranie tekst BEZ znaczników (<<kon>>, {PLAYER}) — do
             # wstawienia idzie pełna wersja, żeby plik zachował kodowanie
             # oryginału. Znaczniki widać w podpowiedzi po najechaniu myszą.
@@ -4829,20 +4855,72 @@ class EditorTab(QWidget):
 
     def _refresh_terms(self) -> None:
         self.terms_list.clear()
-        seg = self.current_segment()
         glossary = self.app.glossary
-        if not seg or not glossary.entries:
+        if not glossary.entries:
             return
-        for term in glossary.find_terms(seg.source):
+        query = ""
+        box = getattr(self, "gloss_search", None)
+        if box is not None:
+            query = box.text().strip()
+        seg = self.current_segment()
+        if query:
+            terms = glossary.search(query)
+        elif seg:
+            terms = glossary.find_terms(seg.source)
+            if not terms:
+                terms = list(glossary.entries[:80])
+        else:
+            terms = list(glossary.entries[:80])
+        seen = set()
+        for term in terms:
+            key = (term.source, term.target)
+            if key in seen:
+                continue
+            seen.add(key)
             desc = f"  – {term.description}" if term.description else ""
             item = QListWidgetItem(f"{term.source} → {term.target}{desc}")
-            item.setData(Qt.ItemDataRole.UserRole, term.target)
+            item.setData(Qt.ItemDataRole.UserRole, (term.source, term.target))
             self.terms_list.addItem(item)
 
     def _insert_term(self, item: QListWidgetItem) -> None:
+        data = item.data(Qt.ItemDataRole.UserRole)
+        if isinstance(data, (tuple, list)) and len(data) >= 2:
+            source_term, target_term = data[0], data[1]
+        else:
+            source_term, target_term = "", data
+        text = self.target_edit.toPlainText()
+        if source_term and text:
+            import re as _re
+            new_text, n = _re.subn(
+                rf"(?<!\w){_re.escape(source_term)}(?!\w)",
+                lambda _m, repl=target_term: repl,
+                text,
+                flags=_re.IGNORECASE,
+            )
+            if n:
+                self.set_target_text(new_text)
+                self.status_message.emit(
+                    f"Glosariusz: wstawiono „{source_term}” → „{target_term}”")
+                return
         cursor = self.target_edit.textCursor()
-        cursor.insertText(item.data(Qt.ItemDataRole.UserRole))
+        cursor.insertText(str(target_term or ""))
         self.target_edit.setFocus()
+
+    def _apply_glossary_to_target(self) -> None:
+        """Podmienia w tłumaczeniu wszystkie frazy z glosariusza projektu."""
+        glossary = self.app.glossary
+        if not glossary.entries:
+            return
+        text = self.target_edit.toPlainText()
+        if not text.strip():
+            seg = self.current_segment()
+            text = (seg.source if seg else "") or ""
+        new_text = glossary.replace_in_text(text)
+        if new_text == text:
+            self.status_message.emit("Glosariusz: nic do wstawienia w tym zdaniu")
+            return
+        self.set_target_text(new_text)
+        self.status_message.emit("Glosariusz: wstawiono trafienia w zdanie")
 
     def _highlight_terms(self) -> None:
         """Podświetla terminy glosariusza w polu źródłowym."""
@@ -5539,6 +5617,7 @@ class EditorTab(QWidget):
         self.gloss_src.clear()
         self.gloss_tgt.clear()
         self.status_message.emit(f"Dodano do glosariusza: {source_term} → {target_term}")
+        self._apply_glossary_to_target()
 
     def _add_selection_to_glossary(self) -> None:
         source_term = self.source_edit.textCursor().selectedText().strip()
