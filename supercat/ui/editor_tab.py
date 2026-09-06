@@ -3021,6 +3021,91 @@ class EditorTab(QWidget):
             return
         self.app.apply_tm_to_all(only_file=file_name, include_translated=True)
 
+    def _clear_file_translations(self, file_names) -> None:
+        """Czyści tłumaczenie: każdy segment pusty, status „nowy”.
+
+        `file_names` – lista nazw albo None (cały projekt).
+        Wpisy TM z tych segmentów też znikają, żeby stary tekst nie wrócił
+        jako dopasowanie 100%.
+        """
+        if not self.segments:
+            return
+        wanted = None if not file_names else set(file_names)
+        indices = [
+            i for i, s in enumerate(self.segments)
+            if wanted is None or (s.file_name or "(bez pliku)") in wanted
+        ]
+        if not indices:
+            QMessageBox.information(
+                self, "Wyczyść tłumaczenie",
+                "Brak segmentów w wybranym zakresie.")
+            return
+        filled = sum(
+            1 for i in indices
+            if (self.segments[i].target or "").strip()
+            or self.segments[i].status not in ("new", "")
+            or self.segments[i].ignored
+        )
+        if wanted is None:
+            where = "całym projekcie"
+        elif len(wanted) == 1:
+            where = f"pliku „{next(iter(wanted))}”"
+        else:
+            where = f"{len(wanted)} plikach"
+        if not filled:
+            QMessageBox.information(
+                self, "Wyczyść tłumaczenie",
+                f"W {where} nie ma tłumaczeń do wyczyszczenia.")
+            return
+        answer = QMessageBox.question(
+            self, "Wyczyść tłumaczenie",
+            f"W {where} jest <b>{filled}</b> segmentów z tłumaczeniem lub innym statusem.\n\n"
+            "Każdy z nich zostanie wyczyszczony:\n"
+            "• tłumaczenie puste,\n"
+            "• status <b>nowy</b>.\n\n"
+            "Tej operacji nie da się łatwo cofnąć z dysku — kontynuować?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            self.status_message.emit("Wyczyść tłumaczenie — przerwane")
+            return
+        self._store_current()
+        if getattr(self, "_tm_upsert_timer", None) is not None:
+            self._tm_upsert_timer.stop()
+        self._tm_pending = set()
+        history: list = []
+        tm = getattr(self.app, "tm", None)
+        for index in indices:
+            seg = self.segments[index]
+            if (seg.target or "") != "":
+                history.append((index, "target", seg.target))
+                seg.target = ""
+            if seg.status != "new":
+                history.append((index, "status", seg.status))
+                seg.status = "new"
+            if seg.ignored:
+                history.append((index, "ignored", True))
+                seg.ignored = False
+            if tm is not None and getattr(tm, "is_initialized", False):
+                try:
+                    tm.upsert_from_segment(
+                        seg.source, "",
+                        self.app.project.source_lang if self.app.project else "en",
+                        self.app.project.target_lang if self.app.project else "pl",
+                        origin_id=self._tm_origin_id(seg),
+                    )
+                except Exception:
+                    pass
+        if history:
+            self._push_undo(f"wyczyszczenie tłumaczenia ({filled})", history)
+        if 0 <= self.current_index < len(self.segments):
+            self.load_segment(self.current_index)
+        self.refresh_grid()
+        self.update_progress()
+        self._save_quietly()
+        self.status_message.emit(
+            f"🧹 Wyczyszczono tłumaczenie: {filled} segmentów → status nowy")
+
     def _files_context_menu(self, pos) -> None:
         """Menu podręczne listy plików (prawy przycisk myszy)."""
         item = self.files_list.itemAt(pos)
@@ -3048,6 +3133,29 @@ class EditorTab(QWidget):
         act_tm_again.setEnabled(done > 0 and self.app.tm.is_initialized)
         act_mt = menu.addAction(f"🤖 Przetłumacz maszynowo „{label}” ({pending} pustych)")
         act_mt.setEnabled(pending > 0)
+        selected = self.selected_file_names()
+        if file_name is None:
+            clear_names = None
+            clear_label = "wszystkich plików"
+            scope_segs = self.segments
+        elif len(selected) > 1:
+            clear_names = selected
+            clear_label = f"{len(selected)} plików"
+            wanted = set(selected)
+            scope_segs = [s for s in self.segments
+                          if (s.file_name or "(bez pliku)") in wanted]
+        else:
+            clear_names = [file_name] if file_name else selected
+            clear_label = label
+            scope_segs = segments
+        dirty = sum(
+            1 for s in scope_segs
+            if (s.target or "").strip() or s.status not in ("new", "") or s.ignored)
+        act_clear = menu.addAction(
+            f"🧹 Wyczyść tłumaczenie „{clear_label}” ({dirty} seg.)")
+        act_clear.setToolTip(
+            "Kasuje tłumaczenie każdego segmentu i ustawia status „nowy”.")
+        act_clear.setEnabled(dirty > 0)
         menu.addSeparator()
         act_show = menu.addAction("👁️ Pokaż tylko ten plik" if file_name else "👁️ Pokaż wszystkie")
         act_find = menu.addAction(f"🔍 Szukaj w „{label}”…")
@@ -3091,6 +3199,8 @@ class EditorTab(QWidget):
             self._reapply_tm_to_file(file_name)
         elif chosen == act_mt:
             self.app.translate_all_mt(only_file=file_name)
+        elif chosen == act_clear:
+            self._clear_file_translations(clear_names)
         elif chosen == act_show:
             self._file_filter = file_name
             self.refresh_grid()
