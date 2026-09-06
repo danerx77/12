@@ -4448,8 +4448,16 @@ class EditorTab(QWidget):
             f"Znaleziono {len(matches)} dopasowań (najlepsze {matches[0].similarity}%)"
         )
         for match in matches:
+            origin = (getattr(match, "origin", "") or "").strip() or "pamięć projektu"
             item = QListWidgetItem(
-                f"[{match.similarity}%] {match.text}\n        źródło TM: {match.original_source}"
+                f"[{match.similarity}%] {match.text}\n"
+                f"        📄 {origin}\n"
+                f"        źródło TM: {match.original_source}"
+            )
+            item.setToolTip(
+                f"Plik TM: {origin}\n"
+                f"Źródło: {match.original_source}\n"
+                f"Tłumaczenie: {match.text}"
             )
             item.setData(Qt.ItemDataRole.UserRole, match.text)
             if match.similarity >= 95:
@@ -4502,11 +4510,16 @@ class EditorTab(QWidget):
                     f"      {label}: {_strip_codes(match.fragment_source)}"
                     f" → {_strip_codes(match.fragment_target)}"
                 )
+            origin = (getattr(match, "origin", "") or "").strip()
+            if origin:
+                text = text + f"\n      📄 {origin}"
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, match.assembled)
+            origin = (getattr(match, "origin", "") or "").strip()
+            origin_line = f"\n📄 {origin}" if origin else ""
             item.setToolTip(
                 f"{match.assembled}\n\n(fragment: {match.fragment_source}"
-                f" → {match.fragment_target})")
+                f" → {match.fragment_target}){origin_line}")
             if getattr(match, "partial", False):
                 # Złożenie zostawia tekst źródłowy — na pomarańczowo, żeby nie
                 # dało się go wziąć za gotowe tłumaczenie.

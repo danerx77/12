@@ -64,6 +64,7 @@ class TranslationMatch:
     adapted_target: str
     similarity: int
     exact: bool = False
+    origin: str = ""
 
     @property
     def text(self) -> str:
@@ -88,6 +89,7 @@ class SentenceMatch:
     line_pairs: List[Tuple[str, str]] = field(default_factory=list)
     #: Skąd pochodzi dopasowanie: "fragment", "linia" lub "złożenie".
     kind: str = "fragment"
+    origin: str = ""
     #: True, gdy w złożonej propozycji został nieprzetłumaczony tekst źródłowy.
     partial: bool = False
 
@@ -223,12 +225,14 @@ class _Index:
     """Indeks TM w pamięci: znormalizowane klucze + tokeny do filtrowania."""
 
     __slots__ = ("sources", "targets", "keys", "lengths", "token_sets", "flats",
+                 "origins",
                  "_by_key", "variants", "word_index", "_indexed_upto",
                  "_len_array", "_len_upto")
 
     def __init__(self) -> None:
         self.sources: List[str] = []
         self.targets: List[str] = []
+        self.origins: List[str] = []
         self.keys: List[str] = []
         self.lengths: List[int] = []
         self.token_sets: List[frozenset] = []
@@ -254,6 +258,7 @@ class _Index:
     def clear(self) -> None:
         self.sources.clear()
         self.targets.clear()
+        self.origins.clear()
         self.keys.clear()
         self.lengths.clear()
         self.token_sets.clear()
@@ -265,7 +270,8 @@ class _Index:
         self._len_array = None
         self._len_upto = 0
 
-    def add(self, source: str, target: str, keep_variants: bool = True) -> None:
+    def add(self, source: str, target: str, keep_variants: bool = True,
+            origin: str = "") -> None:
         """Dokłada wpis do indeksu, zachowując **warianty** tego samego źródła.
 
         To samo zdanie angielskie bywa tłumaczone różnie zależnie od miejsca
@@ -292,6 +298,7 @@ class _Index:
         self._by_key[key] = len(self.sources)
         self.sources.append(source)
         self.targets.append(target)
+        self.origins.append(origin or "")
         self.keys.append(key)
         self.lengths.append(len(key))
         self.token_sets.append(frozenset(_TOKEN_RE.findall(key)))
@@ -364,8 +371,10 @@ class _Index:
         blokowała wątek interfejsu na sekundy – okno wyraźnie „muliło”.
         """
         self.clear()
-        for n, (source, target) in enumerate(rows, 1):
-            self.add(source, target)
+        for n, row in enumerate(rows, 1):
+            source, target = row[0], row[1]
+            origin = row[2] if len(row) > 2 else ""
+            self.add(source, target, origin=origin)
             if yield_every and n % yield_every == 0:
                 time.sleep(0)
 
@@ -467,6 +476,27 @@ class TranslationMemory:
         cur.execute("CREATE INDEX IF NOT EXISTS idx_source ON translation_memory(source_text)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_usage ON translation_memory(usage_count DESC)")
         self._conn.commit()
+        self._ensure_origin_column()
+
+    def _ensure_origin_column(self) -> None:
+        if not self._conn:
+            return
+        cols = [row[1] for row in self._conn.execute("PRAGMA table_info(translation_memory)")]
+        if "origin" not in cols:
+            self._conn.execute(
+                "ALTER TABLE translation_memory ADD COLUMN origin TEXT DEFAULT ''")
+            # Jednorazowo wczytaj TMX od nowa, żeby wpisy dostały nazwę pliku.
+            try:
+                self._conn.execute("DELETE FROM tm_files")
+            except sqlite3.Error:
+                pass
+            self._conn.commit()
+
+    def _origin_at(self, index: int) -> str:
+        origins = getattr(self._index, "origins", None) or []
+        if 0 <= index < len(origins) and origins[index]:
+            return os.path.basename(str(origins[index]))
+        return "pamięć projektu"
 
     def close(self) -> None:
         if self._conn is not None:
@@ -496,8 +526,10 @@ class TranslationMemory:
         # ORDER BY id — indeks musi odzwierciedlać kolejność wpisów w pliku TM.
         # Bez tego przy kilku tłumaczeniach tego samego źródła („BALL” → KULA /
         # PIŁKA / BAL) wygrywał przypadkowy wiersz, a nie pierwszy z pliku.
+        self._ensure_origin_column()
         rows = self._conn.execute(
-            "SELECT source_text, target_text FROM translation_memory ORDER BY id")
+            "SELECT source_text, target_text, COALESCE(origin, '') "
+            "FROM translation_memory ORDER BY id")
         self._index.build(rows)
         self._dirty = False
         self._reset_line_cache()
@@ -508,7 +540,8 @@ class TranslationMemory:
                 self._reload_index()
 
     # ------------------------------------------------------------------
-    def add(self, source: str, target: str, source_lang: str = "en", target_lang: str = "pl") -> bool:
+    def add(self, source: str, target: str, source_lang: str = "en", target_lang: str = "pl",
+            origin: str = "pamięć projektu") -> bool:
         if not self._conn or not source or not source.strip() or target is None:
             return False
         source, target = source.strip(), target.strip()
@@ -524,18 +557,20 @@ class TranslationMemory:
                 return False
         self._conn.execute(
             """
-            INSERT INTO translation_memory (source_text, target_text, source_lang, target_lang, usage_count)
-            VALUES (?, ?, ?, ?, 1)
+            INSERT INTO translation_memory (source_text, target_text, source_lang, target_lang, usage_count, origin)
+            VALUES (?, ?, ?, ?, 1, ?)
             ON CONFLICT(source_text, target_text)
-            DO UPDATE SET usage_count = usage_count + 1
+            DO UPDATE SET usage_count = usage_count + 1,
+                origin = CASE WHEN origin IS NULL OR origin = '' THEN excluded.origin ELSE origin END
             """,
-            (source, target, source_lang, target_lang),
+            (source, target, source_lang, target_lang, origin or "pamięć projektu"),
         )
         self._deferred_commit()
         with self._lock:
             # Ręczny zapis tłumaczenia zastępuje poprzednie; warianty z pliku
             # TM buduje wyłącznie import (_reload_index / add_many).
-            self._index.add(source, target, keep_variants=False)
+            self._index.add(source, target, keep_variants=False,
+                            origin=origin or "pamięć projektu")
         return True
 
     def _deferred_commit(self, force: bool = False) -> None:
@@ -555,17 +590,21 @@ class TranslationMemory:
         if self._conn is not None and self._pending_commit:
             self._deferred_commit(force=True)
 
-    def add_many(self, rows: Sequence[Tuple[str, str, str, str]]) -> int:
+    def add_many(self, rows: Sequence[Tuple[str, str, str, str]], origin: str = "") -> int:
         if not self._conn or not rows:
             return 0
+        self._ensure_origin_column()
+        origin = origin or ""
+        payload = [(s, tgt, sl, tl, origin) for s, tgt, sl, tl in rows]
         cur = self._conn.cursor()
         cur.executemany(
             """
-            INSERT INTO translation_memory (source_text, target_text, source_lang, target_lang, usage_count)
-            VALUES (?, ?, ?, ?, 1)
-            ON CONFLICT(source_text, target_text) DO UPDATE SET usage_count = usage_count + 1
+            INSERT INTO translation_memory (source_text, target_text, source_lang, target_lang, usage_count, origin)
+            VALUES (?, ?, ?, ?, 1, ?)
+            ON CONFLICT(source_text, target_text) DO UPDATE SET usage_count = usage_count + 1,
+                origin = CASE WHEN origin IS NULL OR origin = '' THEN excluded.origin ELSE origin END
             """,
-            rows,
+            payload,
         )
         self._conn.commit()
         self._dirty = True
@@ -747,7 +786,8 @@ class TranslationMemory:
                 matches.append(
                     TranslationMatch(db_source, db_target,
                                      _adapt_to_segment(source, db_target),
-                                     sim, sim == 100)
+                                     sim, sim == 100,
+                                     origin=self._origin_at(i))
                 )
                 if len(matches) >= limit:
                     return matches
@@ -811,7 +851,8 @@ class TranslationMemory:
             if filter_untranslated and _is_mostly_untranslated(db_source, db_target):
                 continue
             results[pos] = TranslationMatch(
-                db_source, db_target, _adapt_to_segment(source, db_target), best_score, best_score == 100
+                db_source, db_target, _adapt_to_segment(source, db_target), best_score, best_score == 100,
+                origin=self._origin_at(best_idx),
             )
 
         if progress is not None:
@@ -1031,7 +1072,8 @@ class TranslationMemory:
                 coverage = int(round(len(db_flat) * 100 / max(len(flat), 1)))
                 line_matches.append(
                     SentenceMatch(db_source, db_target, _wrap(assembled) or haystack, coverage,
-                                  line_pairs=pairs, kind="linia")
+                                  line_pairs=pairs, kind="linia",
+                                  origin=self._origin_at(i))
                 )
 
         # 1c) relacja ODWROTNA: segment jest KRÓTSZY niż wpis TM.
@@ -1068,13 +1110,15 @@ class TranslationMemory:
                     shown = self.adapt_line_case(haystack, best_line[1])
                     line_matches.append(
                         SentenceMatch(best_line[0], best_line[1], _wrap(shown), coverage,
-                                      line_pairs=pairs, kind="linia z dłuższego wpisu")
+                                      line_pairs=pairs, kind="linia z dłuższego wpisu",
+                                      origin=self._origin_at(i))
                     )
                 else:
                     shown = self.adapt_line_case(haystack, db_target)
                     line_matches.append(
                         SentenceMatch(db_source, db_target, _wrap(shown), coverage,
-                                      line_pairs=pairs, kind="segment w dłuższym wpisie")
+                                      line_pairs=pairs, kind="segment w dłuższym wpisie",
+                                      origin=self._origin_at(i))
                     )
                 if len(line_matches) >= limit:
                     break
@@ -1404,7 +1448,7 @@ class TranslationMemory:
         imported = 0
         chunk = 2000
         for i in range(0, len(rows), chunk):
-            self.add_many(rows[i:i + chunk])
+            self.add_many(rows[i:i + chunk], origin=os.path.basename(path))
             imported += len(rows[i:i + chunk])
             if progress:
                 progress(int(min(99, (i + chunk) * 100 / max(len(rows), 1))))
