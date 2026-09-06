@@ -870,82 +870,6 @@ class DockableGroup(QGroupBox):
         menu.exec(event.globalPos())
 
 
-class BandHeightGrip(QFrame):
-    """Ręczny pasek wysokości dolnego pasa: przeciągnij albo − / +."""
-
-    def __init__(self, editor: "EditorTab") -> None:
-        super().__init__()
-        self._editor = editor
-        self._drag_y = 0.0
-        self._sizes: list[int] = []
-        self.setFixedHeight(24)
-        self.setCursor(Qt.CursorShape.SizeVerCursor)
-        self.setToolTip("Przeciągnij w dół = zwęź pas, w górę = powiększ. Albo użyj − / +.")
-        self.setStyleSheet(
-            "BandHeightGrip { background: #3d4b63; border: 1px solid #5a6b86; border-radius: 4px; }"
-            "BandHeightGrip:hover { background: #2f7fd1; border-color: #90caf9; }")
-        row = QHBoxLayout(self)
-        row.setContentsMargins(4, 0, 4, 0)
-        row.setSpacing(6)
-        minus = QToolButton()
-        minus.setText("−")
-        minus.setToolTip("Zwęź pas")
-        minus.setFixedSize(28, 20)
-        minus.setCursor(Qt.CursorShape.PointingHandCursor)
-        minus.clicked.connect(lambda: self._nudge(-90))
-        plus = QToolButton()
-        plus.setText("+")
-        plus.setToolTip("Powiększ pas")
-        plus.setFixedSize(28, 20)
-        plus.setCursor(Qt.CursorShape.PointingHandCursor)
-        plus.clicked.connect(lambda: self._nudge(90))
-        lab = QLabel("↕  Zwęź / powiększ pas  (przeciągnij albo − +)")
-        lab.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lab.setStyleSheet("color: #d0d8e6; font-size: 11px; background: transparent; border: none;")
-        lab.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        row.addWidget(minus)
-        row.addWidget(lab, 1)
-        row.addWidget(plus)
-
-    def _nudge(self, delta: int) -> None:
-        root = getattr(self._editor, "_root_split", None)
-        if root is None or root.count() != 2:
-            return
-        self._sizes = list(root.sizes())
-        self._apply_bottom(self._sizes[1] + delta)
-        saver = getattr(self._editor, "_save_split_sizes", None)
-        if callable(saver):
-            saver()
-
-    def _apply_bottom(self, bottom: int) -> None:
-        root = getattr(self._editor, "_root_split", None)
-        if root is None or len(self._sizes) != 2:
-            return
-        total = self._sizes[0] + self._sizes[1]
-        bottom = max(48, min(int(bottom), total - 100))
-        root.setSizes([total - bottom, bottom])
-        self._editor._sync_below_stack_size()
-
-    def mousePressEvent(self, event) -> None:  # noqa: N802
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_y = event.globalPosition().y()
-            root = getattr(self._editor, "_root_split", None)
-            self._sizes = list(root.sizes()) if root is not None else []
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event) -> None:  # noqa: N802
-        if not (event.buttons() & Qt.MouseButton.LeftButton) or len(self._sizes) != 2:
-            return
-        dy = int(self._drag_y - event.globalPosition().y())
-        self._apply_bottom(self._sizes[1] + dy)
-
-    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
-        super().mouseReleaseEvent(event)
-        saver = getattr(self._editor, "_save_split_sizes", None)
-        if callable(saver):
-            saver()
-
-
 class PanelDropHost(QWidget):
     """Miejsce, na które można upuścić panel (prawa kolumna albo pod tłumaczeniem)."""
 
@@ -1348,13 +1272,14 @@ class EditorTab(QWidget):
         matches_box = QWidget()
         mb_layout = QVBoxLayout(matches_box)
         mb_layout.setContentsMargins(4, 4, 4, 4)
-        self.matches_info = QLabel("Dopasowania z pamięci tłumaczeń")
+        self.matches_info = QLabel("")
         self.matches_info.setWordWrap(False)
         self.matches_info.setStyleSheet("color: gray; font-size: 11px;")
         self.matches_info.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-        mb_layout.setContentsMargins(4, 4, 4, 4)
-        mb_layout.setSpacing(4)
+        mb_layout.setContentsMargins(2, 2, 2, 2)
+        mb_layout.setSpacing(2)
         mb_layout.addWidget(self.matches_info)
+        self.matches_info.hide()
         mb_layout.addWidget(self.matches_list, 1)
         insert_btn = QPushButton("⤵ Wstaw zaznaczone\ndopasowanie")
         from ..core import shortcuts as _sc_ins
@@ -1566,9 +1491,6 @@ class EditorTab(QWidget):
         below_l = QVBoxLayout(self._below_host)
         below_l.setContentsMargins(2, 0, 2, 2)
         below_l.setSpacing(1)
-        self._below_grip = BandHeightGrip(self)
-        below_l.addWidget(self._below_grip)
-        self._below_grip.hide()
         self._below_hint = QLabel("⬇ Upuść panel")
         self._below_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._below_hint.setStyleSheet("color: gray; font-size: 10px; padding: 0;")
@@ -1977,6 +1899,24 @@ class EditorTab(QWidget):
             self._save_grid_columns()
         elif chosen == act_reset:
             self.reset_grid_columns()
+
+    def _set_matches_info(self, text: str) -> None:
+        """Status pod listą TM — pusty / domyślny napis nie zajmuje miejsca."""
+        label = getattr(self, "matches_info", None)
+        if label is None:
+            return
+        text = (text or "").strip()
+        dummy = {
+            "",
+            "Dopasowania z pamięci tłumaczeń",
+            "Dopasowania TM",
+        }
+        if text in dummy:
+            label.clear()
+            label.hide()
+            return
+        label.setText(text)
+        label.show()
 
     def _on_root_split_moved(self, *_a) -> None:
         self._sync_below_stack_size()
@@ -2454,7 +2394,7 @@ class EditorTab(QWidget):
         if host is None:
             return
         layout = host.layout()
-        keep = {getattr(self, "_below_hint", None), getattr(self, "_below_grip", None)}
+        keep = {getattr(self, "_below_hint", None)}
         if layout is not None:
             for index in range(layout.count() - 1, -1, -1):
                 item = layout.itemAt(index)
@@ -2466,8 +2406,6 @@ class EditorTab(QWidget):
         self._below_stack = None
         self._below_scroll = None
         if not visible_below:
-            if getattr(self, "_below_grip", None) is not None:
-                self._below_grip.hide()
             self._below_hint.show()
             host.setMinimumHeight(22)
             host.setMaximumHeight(28)
@@ -2477,8 +2415,6 @@ class EditorTab(QWidget):
                 root.setSizes([max(200, total - 36), 36])
             return
         self._below_hint.hide()
-        if getattr(self, "_below_grip", None) is not None:
-            self._below_grip.show()
         host.setMaximumHeight(16777215)
         host.setMinimumHeight(64)
         host.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -3617,9 +3553,9 @@ class EditorTab(QWidget):
         self.matches_list.clear()
         self.sentence_list.clear()
         if self.app.tm.is_initialized:
-            self.matches_info.setText("⏳ Szukanie dopasowań…")
+            self._set_matches_info("⏳ Szukanie dopasowań…")
         else:
-            self.matches_info.setText("Brak pamięci TM (otwórz projekt)")
+            self._set_matches_info("Brak pamięci TM (otwórz projekt)")
         if settings.get_bool("tm.sentence.matching.enabled", False):
             self.sentence_info.setText("⏳ Szukanie fragmentów zdań…")
         else:
@@ -4428,7 +4364,7 @@ class EditorTab(QWidget):
             # Podpowiedzi wyłączone w Ustawieniach – nie ruszamy pamięci wcale.
             self.matches_list.clear()
             self.sentence_list.clear()
-            self.matches_info.setText("Podpowiedzi z pamięci TM wyłączone w Ustawieniach")
+            self._set_matches_info("Podpowiedzi z pamięci TM wyłączone w Ustawieniach")
             return
 
         seg = self.current_segment()
@@ -4436,7 +4372,7 @@ class EditorTab(QWidget):
         if not seg or not tm.is_initialized:
             self.matches_list.clear()
             self.sentence_list.clear()
-            self.matches_info.setText("Brak pamięci TM (otwórz projekt)")
+            self._set_matches_info("Brak pamięci TM (otwórz projekt)")
             self.sentence_info.setText("Brak pamięci TM")
             return
 
@@ -4461,7 +4397,7 @@ class EditorTab(QWidget):
                 volatile.append(stamp)
             if volatile:
                 tm.add_volatile_pairs(volatile)
-        self.matches_info.setText("⏳ Szukanie dopasowań…")
+        self._set_matches_info("⏳ Szukanie dopasowań…")
         if settings.get_bool("tm.sentence.matching.enabled", False):
             self.sentence_info.setText("⏳ Szukanie fragmentów zdań…")
         else:
@@ -4503,9 +4439,9 @@ class EditorTab(QWidget):
         tm = self.app.tm
         threshold = SettingsManager.instance().get_int("fuzzy.threshold", 70)
         if not matches:
-            self.matches_info.setText(f"Brak dopasowań ≥ {threshold}%  (TM: {tm.size()} wpisów)")
+            self._set_matches_info(f"Brak dopasowań ≥ {threshold}%  (TM: {tm.size()} wpisów)")
             return
-        self.matches_info.setText(
+        self._set_matches_info(
             f"Znaleziono {len(matches)} dopasowań (najlepsze {matches[0].similarity}%)"
         )
         for match in matches:
