@@ -1,6 +1,8 @@
 """Zakładka Ustawienia – ogólne, TM, MT, segmentacja, QA."""
 from __future__ import annotations
 
+import os
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
@@ -349,6 +351,43 @@ class SettingsTab(QTabWidget):
         self.load_last.stateChanged.connect(lambda s: self.settings.set("auto.load.last.project", bool(s)))
         eform.addRow(self.load_last)
         layout.addWidget(editor)
+
+        team = QGroupBox("Zespół i internet (jak OmegaT)")
+        tform = QFormLayout(team)
+        self.translator_nick = QLineEdit(self.settings.get_str("user.translator.name", ""))
+        self.translator_nick.setPlaceholderText("np. anna.k")
+        self.translator_nick.setToolTip(
+            "Nick zapisywany przy zatwierdzeniu segmentu — widać, kto tłumaczył.")
+        self.translator_nick.textChanged.connect(
+            lambda v: self.settings.set("user.translator.name", v))
+        tform.addRow("Nick tłumacza:", self.translator_nick)
+        self.github_token = QLineEdit(self.settings.get_str("git.github.token", ""))
+        self.github_token.setEchoMode(QLineEdit.EchoMode.Password)
+        self.github_token.setPlaceholderText("ghp_…  (repo prywatne)")
+        self.github_token.setToolTip(
+            "Personal Access Token GitHub. Potrzebny do prywatnych repozytoriów.\n"
+            "GitHub → Settings → Developer settings → Personal access tokens.")
+        self.github_token.textChanged.connect(
+            lambda v: self.settings.set("git.github.token", v))
+        tform.addRow("Token GitHub:", self.github_token)
+        clone_row = QHBoxLayout()
+        default_clone = self.settings.get_str("git.clone.folder", "") or os.path.join(
+            os.path.expanduser("~"), "SuperCAT_Projects")
+        self.clone_folder = QLineEdit(default_clone)
+        self.clone_folder.textChanged.connect(
+            lambda v: self.settings.set("git.clone.folder", v))
+        clone_browse = QPushButton("📂")
+        clone_browse.clicked.connect(self._browse_clone_folder)
+        clone_row.addWidget(self.clone_folder, 1)
+        clone_row.addWidget(clone_browse)
+        tform.addRow("Folder na projekty z sieci:", clone_row)
+        hint = QLabel(
+            "Plik → Pobierz projekt z internetu…  — wklejasz adres GitHuba, "
+            "program ściąga repozytorium (git albo ZIP).")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: gray; font-size: 11px;")
+        tform.addRow(hint)
+        layout.addWidget(team)
 
         reset_btn = QPushButton("↺ Przywróć ustawienia domyślne")
         reset_btn.setMaximumWidth(300)
@@ -802,6 +841,13 @@ class SettingsTab(QTabWidget):
         keys[i], keys[j] = keys[j], keys[i]
         self.settings.set("tm.panel.order", _json.dumps(keys))
         self._apply_panel_layout()
+
+    def _browse_clone_folder(self) -> None:
+        from PyQt6.QtWidgets import QFileDialog
+        path = QFileDialog.getExistingDirectory(
+            self, "Folder na projekty z sieci", self.clone_folder.text())
+        if path:
+            self.clone_folder.setText(path)
 
     def _apply_panel_layout(self) -> None:
         editor = getattr(self.app, "editor_tab", None)

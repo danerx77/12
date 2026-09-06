@@ -1225,7 +1225,7 @@ class EditorTab(QWidget):
             ("▶▶", _sc.with_shortcut("next_untranslated", "następny NIEPRZETŁUMACZONY segment"),
              self.next_untranslated),
             ("✔ Zatwierdź i dalej", _sc.with_shortcut("confirm_next", "zatwierdź i dalej"), self.confirm_and_next),
-            ("💾 Do TM", _sc.with_shortcut("save_to_tm", "zapisz segment do pamięci"), self.save_to_tm),
+            ("💾 Do TM", _sc.with_shortcut("save_to_tm", "zapisz segment do pamięci"), lambda: self.save_to_tm(force=True)),
             # „🤖 Tłumacz” przeniesiony wyżej – obok wyboru silnika MT.
             ("📋 Kopiuj źródło", _sc.with_shortcut("copy_source", "kopiuj źródło do tłumaczenia"), self.copy_source_to_target),
             ("␣ Wcięcie", _sc.with_shortcut("restore_indent", "nadaj tłumaczeniu takie same spacje na brzegach jak w źródle"),
@@ -1641,7 +1641,7 @@ class EditorTab(QWidget):
             "copy_source": self.copy_source_to_target,
             "insert_match": self._insert_best_match,
             "machine_translate": self.machine_translate_current,
-            "save_to_tm": self.save_to_tm,
+            "save_to_tm": lambda: self.save_to_tm(force=True),
             "restore_indent": self.restore_source_indent,
             "check_language": lambda: self.check_language(force=True),
             "find_selected": self.find_selected_word,
@@ -3410,7 +3410,7 @@ class EditorTab(QWidget):
         elif action == act_mt:
             self.machine_translate_current()
         elif action == act_tm:
-            self.save_to_tm()
+            self.save_to_tm(force=True)
         elif action == act_alt:
             self.add_alternative_translation()
         elif action == act_show_alt:
@@ -3695,6 +3695,11 @@ class EditorTab(QWidget):
             self._push_undo("zatwierdzenie segmentu",
                             [(self.current_index, "status", seg.status)])
         seg.status = target_status
+        nick = SettingsManager.instance().get_str("user.translator.name", "").strip()
+        if nick:
+            if not isinstance(seg.extra, dict):
+                seg.extra = {}
+            seg.extra["translator"] = nick
         if seg.is_translated and SettingsManager.instance().get_bool("tm.auto.add", True):
             self.save_to_tm(silent=True)
         idx = self.current_index
@@ -4391,7 +4396,11 @@ class EditorTab(QWidget):
         if settings.get_bool("tm.sentence.use.translated", False):
             volatile = []
             for i, sg in enumerate(self.segments):
+                # Szkice (wpisane, ale niezatwierdzone) NIE idą do TM —
+                # inaczej po skoku na inny segment własne błędy wracały jako dopasowanie.
                 if i == self.current_index or sg.ignored or not sg.is_translated:
+                    continue
+                if sg.status not in ("translated", "approved"):
                     continue
                 stamp = (sg.source, sg.target)
                 if self._volatile_sent.get(i) == stamp:
@@ -5275,7 +5284,7 @@ class EditorTab(QWidget):
             self.concordance_list.addItem("(brak wyników w pamięci TM)")
 
     # --------------------------------------------------------------- akcje
-    def save_to_tm(self, silent: bool = False) -> None:
+    def save_to_tm(self, silent: bool = False, force: bool = False) -> None:
         seg = self.current_segment()
         if not seg:
             return
@@ -5283,6 +5292,11 @@ class EditorTab(QWidget):
         if not seg.is_translated:
             if not silent:
                 self.info_label.setText("⚠️ Brak tłumaczenia do zapisania")
+            return
+        # Szkic (sam wpis, bez zatwierdzenia) nie zaśmieca TM.
+        if not force and seg.status not in ("translated", "approved"):
+            if not silent:
+                self.info_label.setText("Zatwierdź segment (Ctrl+Enter), żeby zapisać do TM")
             return
         project = self.app.project
         added = self.app.tm.add(

@@ -262,3 +262,57 @@ class AboutDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+
+
+class DownloadRemoteProjectDialog(QDialog):
+    """Pobiera projekt z GitHuba / gita — odpowiednik zespołu OmegaT."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Pobierz projekt z internetu")
+        self.setMinimumWidth(560)
+        layout = QVBoxLayout(self)
+        hint = QLabel(
+            "Wklej adres repozytorium (GitHub lub git), tak jak w OmegaT przy "
+            "projekcie zespołowym. SuperCAT sklonuje folder i otworzy go jako projekt."
+        )
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        form = QFormLayout()
+        self.url_edit = QLineEdit()
+        self.url_edit.setPlaceholderText("https://github.com/organizacja/projekt.git")
+        form.addRow("Adres:", self.url_edit)
+        from ...core.settings import SettingsManager
+        sm = SettingsManager.instance()
+        default = sm.get_str("git.clone.folder", "") or os.path.join(
+            os.path.expanduser("~"), "SuperCAT_Projects")
+        self.folder_edit = QLineEdit(default)
+        browse = QPushButton("📂")
+        browse.clicked.connect(self._browse)
+        row = QHBoxLayout()
+        row.addWidget(self.folder_edit, 1)
+        row.addWidget(browse)
+        form.addRow("Zapisz w:", row)
+        self.token_edit = QLineEdit(sm.get_str("git.github.token", ""))
+        self.token_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.token_edit.setPlaceholderText("opcjonalnie — token GitHub (repo prywatne)")
+        form.addRow("Token GitHub:", self.token_edit)
+        layout.addLayout(form)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _browse(self) -> None:
+        path = QFileDialog.getExistingDirectory(self, "Folder na projekt", self.folder_edit.text())
+        if path:
+            self.folder_edit.setText(path)
+
+    def values(self) -> dict:
+        return {
+            "url": self.url_edit.text().strip(),
+            "folder": self.folder_edit.text().strip(),
+            "token": self.token_edit.text().strip(),
+        }

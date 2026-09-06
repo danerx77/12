@@ -122,6 +122,10 @@ DEFAULTS: Dict[str, Any] = {
     "auto.insert.overwrite": False,
     "tm.lookup.enabled": True,
     "tm.auto.add": True,
+    "user.translator.name": "",
+    "git.github.token": "",
+    "git.clone.folder": "",
+
     "editor.confirm.status": "translated",
     #: Strzałki ↑/↓ w polu tłumaczenia przechodzą między segmentami,
     #: gdy kursor jest w pierwszym/ostatnim wierszu tekstu.

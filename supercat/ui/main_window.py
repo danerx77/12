@@ -28,7 +28,8 @@ from ..core.settings import SettingsManager
 from ..core.textutil import copy_edge_whitespace
 from ..core.tm import TranslationMemory
 from .dialogs.project_dialogs import (
-    AboutDialog, NewProjectDialog, ProjectSettingsDialog, SegmentationPreviewDialog,
+    AboutDialog, DownloadRemoteProjectDialog, NewProjectDialog, ProjectSettingsDialog,
+    SegmentationPreviewDialog,
 )
 from .ai_panel import AIPanel
 from .editor_tab import EditorTab
@@ -143,6 +144,7 @@ class MainWindow(QMainWindow):
         file_menu = menu.addMenu("📁 Plik")
         self._add_action(file_menu, "Nowy projekt…", None, self.new_project, shortcut_key="new_project")
         self._add_action(file_menu, "Otwórz projekt…", None, self.open_project, shortcut_key="open_project")
+        self._add_action(file_menu, "Pobierz projekt z internetu…", None, self.download_remote_project)
         self.recent_menu = file_menu.addMenu("📂 Ostatnie projekty")
         self._refresh_recent_menu()
         file_menu.addSeparator()
@@ -496,6 +498,47 @@ class MainWindow(QMainWindow):
             )
         except Exception as exc:
             QMessageBox.critical(self, "Błąd", f"Nie udało się utworzyć projektu:\n{exc}")
+
+    def download_remote_project(self) -> None:
+        """Ściąga projekt z GitHuba / gita (jak zespół w OmegaT) i otwiera go."""
+        dialog = DownloadRemoteProjectDialog(self)
+        if dialog.exec() != DownloadRemoteProjectDialog.DialogCode.Accepted:
+            return
+        values = dialog.values()
+        url = values.get("url") or ""
+        if not url:
+            QMessageBox.warning(self, "Pobierz projekt", "Podaj adres URL repozytorium.")
+            return
+        token = values.get("token") or ""
+        if token:
+            self.settings.set("git.github.token", token)
+        folder = values.get("folder") or ""
+        if folder:
+            self.settings.set("git.clone.folder", folder)
+        progress = QProgressDialog("Pobieranie projektu…", None, 0, 0, self)
+        progress.setWindowTitle("Projekt z internetu")
+        progress.setMinimumDuration(0)
+        progress.show()
+        QApplication.processEvents()
+        try:
+            from ..core.remote_project import fetch_remote_project, find_or_create_scproj
+            dest, err = fetch_remote_project(url, folder, token)
+        finally:
+            progress.close()
+        if err:
+            QMessageBox.warning(self, "Pobierz projekt", err)
+            return
+        try:
+            scproj = find_or_create_scproj(
+                dest,
+                source_lang="en",
+                target_lang="pl",
+            )
+        except Exception as exc:
+            QMessageBox.warning(self, "Pobierz projekt", str(exc))
+            return
+        self.open_project_path(scproj)
+        self.show_status(f"Pobrano projekt z sieci: {dest}")
 
     def open_project(self) -> None:
         base = os.path.join(os.path.expanduser("~"), "SuperCAT_Projects")
@@ -966,6 +1009,9 @@ class MainWindow(QMainWindow):
                 for flag in ("manual_skip", "manual_keep", "auto_excluded"):
                     if extra.get(flag):
                         entry[flag] = True
+                nick = extra.get("translator")
+                if nick:
+                    entry["translator"] = nick
             data[f"{seg.file_name}::{seg.seg_id}"] = entry
         with open(self._translations_path(), "w", encoding="utf-8") as fh:
             json.dump(data, fh, ensure_ascii=False, indent=1)
@@ -986,6 +1032,9 @@ class MainWindow(QMainWindow):
                 for flag in ("manual_skip", "manual_keep", "auto_excluded"):
                     if stored[key].get(flag):
                         seg.extra[flag] = True
+                nick = stored[key].get("translator")
+                if nick:
+                    seg.extra["translator"] = nick
         self.editor_tab.refresh_grid()
         if self.editor_tab.segments:
             self.editor_tab.load_segment(self.editor_tab.current_index if self.editor_tab.current_index >= 0 else 0)
