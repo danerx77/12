@@ -849,6 +849,48 @@ class DockableGroup(QGroupBox):
         menu.exec(event.globalPos())
 
 
+class BandHeightGrip(QFrame):
+    """Kreska na górze dolnego pasa — przeciągnij w górę, żeby go powiększyć."""
+
+    def __init__(self, editor: "EditorTab") -> None:
+        super().__init__()
+        self._editor = editor
+        self._drag_y = 0.0
+        self._sizes: list[int] = []
+        self.setFixedHeight(14)
+        self.setCursor(Qt.CursorShape.SizeVerCursor)
+        self.setToolTip("Przeciągnij w GÓRĘ, żeby powiększyć dolny pas (TM / zdania).")
+        self.setStyleSheet(
+            "BandHeightGrip { background: #4a5a75; border-radius: 3px; }"
+            "BandHeightGrip:hover { background: #2f7fd1; }")
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_y = event.globalPosition().y()
+            root = getattr(self._editor, "_root_split", None)
+            self._sizes = list(root.sizes()) if root is not None else []
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if not (event.buttons() & Qt.MouseButton.LeftButton) or len(self._sizes) != 2:
+            return
+        root = getattr(self._editor, "_root_split", None)
+        if root is None:
+            return
+        dy = int(self._drag_y - event.globalPosition().y())
+        total = self._sizes[0] + self._sizes[1]
+        bottom = max(90, min(self._sizes[1] + dy, total - 140))
+        top = total - bottom
+        root.setSizes([top, bottom])
+        self._editor._sync_below_stack_size()
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        super().mouseReleaseEvent(event)
+        saver = getattr(self._editor, "_save_split_sizes", None)
+        if callable(saver):
+            saver()
+
+
 class PanelDropHost(QWidget):
     """Miejsce, na które można upuścić panel (prawa kolumna albo pod tłumaczeniem)."""
 
@@ -1466,6 +1508,9 @@ class EditorTab(QWidget):
         below_l = QVBoxLayout(self._below_host)
         below_l.setContentsMargins(4, 2, 4, 4)
         below_l.setSpacing(4)
+        self._below_grip = BandHeightGrip(self)
+        below_l.addWidget(self._below_grip)
+        self._below_grip.hide()
         self._below_hint = QLabel(
             "⬇ Upuść tu: cała szerokość. Podświetlenie przy przeciąganiu: "
             "bok = obok, góra/dół = kolejność. Suwak, gdy paneli jest więcej.")
@@ -1488,10 +1533,17 @@ class EditorTab(QWidget):
         self._root_split = QSplitter(Qt.Orientation.Vertical)
         self._root_split.addWidget(splitter)
         self._root_split.addWidget(self._below_host)
-        self._root_split.setStretchFactor(0, 8)
-        self._root_split.setStretchFactor(1, 1)
-        self._root_split.setChildrenCollapsible(False)
-        self._root_split.splitterMoved.connect(self._save_split_sizes)
+        self._root_split.setStretchFactor(0, 5)
+        self._root_split.setStretchFactor(1, 2)
+        self._root_split.setHandleWidth(10)
+        self._root_split.setCollapsible(0, True)
+        self._root_split.setCollapsible(1, False)
+        from ..ui.theme import style_splitter_handle
+        handle = self._root_split.handle(1)
+        style_splitter_handle(handle)
+        if handle is not None:
+            handle.setToolTip("Wysokość dolnego pasa — przeciągnij w górę, żeby powiększyć")
+        self._root_split.splitterMoved.connect(self._on_root_split_moved)
         layout.addWidget(self._root_split)
 
     def eventFilter(self, obj, event):  # noqa: N802 (Qt API)
@@ -1868,6 +1920,10 @@ class EditorTab(QWidget):
             self._save_grid_columns()
         elif chosen == act_reset:
             self.reset_grid_columns()
+
+    def _on_root_split_moved(self, *_a) -> None:
+        self._sync_below_stack_size()
+        self._save_split_sizes()
 
     def _save_split_sizes(self, *_a) -> None:
         """Pamięta szerokości kolumn (pliki | edytor | panel) między sesjami."""
@@ -2341,15 +2397,20 @@ class EditorTab(QWidget):
         if host is None:
             return
         layout = host.layout()
-        while layout is not None and layout.count() > 1:
-            item = layout.takeAt(layout.count() - 1)
-            widget = item.widget() if item is not None else None
-            if widget is not None and widget is not self._below_hint:
-                widget.setParent(None)
-                widget.deleteLater()
+        keep = {getattr(self, "_below_hint", None), getattr(self, "_below_grip", None)}
+        if layout is not None:
+            for index in range(layout.count() - 1, -1, -1):
+                item = layout.itemAt(index)
+                widget = item.widget() if item is not None else None
+                if widget is not None and widget not in keep:
+                    layout.takeAt(index)
+                    widget.setParent(None)
+                    widget.deleteLater()
         self._below_stack = None
         self._below_scroll = None
         if not visible_below:
+            if getattr(self, "_below_grip", None) is not None:
+                self._below_grip.hide()
             self._below_hint.show()
             host.setMinimumHeight(28)
             host.setMaximumHeight(36)
@@ -2359,8 +2420,10 @@ class EditorTab(QWidget):
                 root.setSizes([max(200, total - 36), 36])
             return
         self._below_hint.show()
+        if getattr(self, "_below_grip", None) is not None:
+            self._below_grip.show()
         host.setMaximumHeight(16777215)
-        host.setMinimumHeight(120)
+        host.setMinimumHeight(90)
         host.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         by_key = {key: (title, w, key) for title, w, key in visible_below}
