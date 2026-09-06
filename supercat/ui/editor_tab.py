@@ -696,11 +696,19 @@ class DockableGroup(QGroupBox):
         self.setAcceptDrops(True)
         self.setProperty("sc_panel_key", key)
         self.setCursor(Qt.CursorShape.OpenHandCursor)
-        self.setFlat(True)
+        # Tytuł MUSI być w całości — za mały margin-top ucinał „Dopasowania TM”.
         self.setStyleSheet(
-            "DockableGroup { margin-top: 4px; padding: 0 2px 2px 2px; }"
-            "DockableGroup::title { subcontrol-origin: margin; left: 6px;"
-            " padding: 0 4px; }")
+            "DockableGroup {"
+            "  margin-top: 14px;"
+            "  padding: 10px 6px 6px 6px;"
+            "  font-weight: 600;"
+            "}"
+            "DockableGroup::title {"
+            "  subcontrol-origin: margin;"
+            "  subcontrol-position: top left;"
+            "  left: 10px;"
+            "  padding: 0 6px;"
+            "}")
         self.setToolTip(
             "Chwyć tytuł i przeciągnij. Podświetlenie pokazuje, co się stanie:\n"
             "bok = obok, góra/dół = kolejność (jeden pod drugim).\n"
@@ -1303,15 +1311,13 @@ class EditorTab(QWidget):
         matches_box = QWidget()
         mb_layout = QVBoxLayout(matches_box)
         mb_layout.setContentsMargins(4, 4, 4, 4)
-        self.matches_info = QLabel("")
+        self.matches_info = QLabel("Dopasowania z pamięci tłumaczeń")
         self.matches_info.setWordWrap(False)
         self.matches_info.setStyleSheet("color: gray; font-size: 11px;")
         self.matches_info.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-        self.matches_info.setMaximumHeight(16)
-        mb_layout.setContentsMargins(2, 0, 2, 2)
-        mb_layout.setSpacing(2)
+        mb_layout.setContentsMargins(4, 4, 4, 4)
+        mb_layout.setSpacing(4)
         mb_layout.addWidget(self.matches_info)
-        self.matches_info.hide()
         mb_layout.addWidget(self.matches_list, 1)
         insert_btn = QPushButton("⤵ Wstaw zaznaczone\ndopasowanie")
         from ..core import shortcuts as _sc_ins
@@ -2475,8 +2481,8 @@ class EditorTab(QWidget):
                 grp.setMinimumHeight(row_min)
                 grp.setMaximumHeight(16777215)
                 gl = QVBoxLayout(grp)
-                gl.setContentsMargins(4, 2, 4, 4)
-                gl.setSpacing(3)
+                gl.setContentsMargins(6, 8, 6, 6)
+                gl.setSpacing(4)
                 gl.addWidget(w)
                 hs.addWidget(grp)
             for i in range(hs.count()):
@@ -2627,8 +2633,8 @@ class EditorTab(QWidget):
                 grp.setSizePolicy(QSizePolicy.Policy.Preferred,
                                   QSizePolicy.Policy.Minimum)
                 gl = QVBoxLayout(grp)
-                gl.setContentsMargins(4, 2, 4, 4)
-                gl.setSpacing(3)
+                gl.setContentsMargins(6, 8, 6, 6)
+                gl.setSpacing(4)
                 gl.addWidget(w)
                 stack.addWidget(grp)
             # Atrapa pod spodem — uchwyt POD notatkami, żeby dało się je
@@ -3574,9 +3580,9 @@ class EditorTab(QWidget):
         self.matches_list.clear()
         self.sentence_list.clear()
         if self.app.tm.is_initialized:
-            self.matches_info.show(); self.matches_info.setText("⏳ Szukanie dopasowań…")
+            self.matches_info.setText("⏳ Szukanie dopasowań…")
         else:
-            self.matches_info.show(); self.matches_info.setText("Brak pamięci TM (otwórz projekt)")
+            self.matches_info.setText("Brak pamięci TM (otwórz projekt)")
         if settings.get_bool("tm.sentence.matching.enabled", False):
             self.sentence_info.setText("⏳ Szukanie fragmentów zdań…")
         else:
@@ -4385,7 +4391,7 @@ class EditorTab(QWidget):
             # Podpowiedzi wyłączone w Ustawieniach – nie ruszamy pamięci wcale.
             self.matches_list.clear()
             self.sentence_list.clear()
-            self.matches_info.show(); self.matches_info.setText("Podpowiedzi z pamięci TM wyłączone w Ustawieniach")
+            self.matches_info.setText("Podpowiedzi z pamięci TM wyłączone w Ustawieniach")
             return
 
         seg = self.current_segment()
@@ -4393,7 +4399,7 @@ class EditorTab(QWidget):
         if not seg or not tm.is_initialized:
             self.matches_list.clear()
             self.sentence_list.clear()
-            self.matches_info.show(); self.matches_info.setText("Brak pamięci TM (otwórz projekt)")
+            self.matches_info.setText("Brak pamięci TM (otwórz projekt)")
             self.sentence_info.setText("Brak pamięci TM")
             return
 
@@ -4418,7 +4424,7 @@ class EditorTab(QWidget):
                 volatile.append(stamp)
             if volatile:
                 tm.add_volatile_pairs(volatile)
-        self.matches_info.show(); self.matches_info.setText("⏳ Szukanie dopasowań…")
+        self.matches_info.setText("⏳ Szukanie dopasowań…")
         if settings.get_bool("tm.sentence.matching.enabled", False):
             self.sentence_info.setText("⏳ Szukanie fragmentów zdań…")
         else:
@@ -4460,9 +4466,9 @@ class EditorTab(QWidget):
         tm = self.app.tm
         threshold = SettingsManager.instance().get_int("fuzzy.threshold", 70)
         if not matches:
-            self.matches_info.show(); self.matches_info.setText(f"Brak dopasowań ≥ {threshold}%  (TM: {tm.size()} wpisów)")
+            self.matches_info.setText(f"Brak dopasowań ≥ {threshold}%  (TM: {tm.size()} wpisów)")
             return
-        self.matches_info.show(); self.matches_info.setText(
+        self.matches_info.setText(
             f"Znaleziono {len(matches)} dopasowań (najlepsze {matches[0].similarity}%)"
         )
         for match in matches:
