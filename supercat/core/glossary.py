@@ -133,15 +133,17 @@ class Glossary:
         found.sort(key=lambda e: len(e.source), reverse=True)
         return found
 
-    def replace_in_text(self, text: str) -> str:
+    def replace_in_text(self, text: str, only_if_in: str = "") -> str:
         """Podmienia w tekście terminy źródłowe na tłumaczenia (cały projekt).
 
-        Jak w OmegaT: glosariusz jest jeden na projekt. Dłuższe frazy pierwsze,
-        żeby „What is this person like?” nie rozbiło się na pojedyncze słowa.
+        Jak w OmegaT: glosariusz jest jeden na projekt, ale wstawiamy tylko
+        frazy, które naprawdę są w tym zdaniu — nigdy nie doklejamy na końcu.
+        `only_if_in` (zwykle źródło segmentu) ogranicza do trafień z tego zdania.
         """
         if not text or not self.entries:
             return text
         result = text
+        scope = (only_if_in or text)
         terms = sorted(self.entries, key=lambda e: len(e.source or ""), reverse=True)
         for entry in terms:
             src = (entry.source or "").strip()
@@ -150,17 +152,17 @@ class Glossary:
                 continue
             if src.lower() == tgt.lower():
                 continue
-            needles = [src]
-            trimmed = src.rstrip(" ?.!…")
-            if trimmed != src and len(trimmed) >= 2:
-                needles.append(trimmed)
-            for needle in needles:
-                result = re.sub(
-                    rf"(?<!\w){re.escape(needle)}(?!\w)",
-                    lambda _m, repl=tgt: repl,
-                    result,
-                    flags=re.IGNORECASE,
-                )
+            if only_if_in and not re.search(
+                    rf"(?<!\w){re.escape(src)}(?!\w)", only_if_in, flags=re.IGNORECASE):
+                continue
+            if not re.search(rf"(?<!\w){re.escape(src)}(?!\w)", result, flags=re.IGNORECASE):
+                continue
+            result = re.sub(
+                rf"(?<!\w){re.escape(src)}(?!\w)",
+                lambda _m, repl=tgt: repl,
+                result,
+                flags=re.IGNORECASE,
+            )
         return result
 
     def search(self, query: str, in_source: bool = True, in_target: bool = True) -> List[GlossaryEntry]:

@@ -3633,17 +3633,7 @@ class EditorTab(QWidget):
         seg = self.segments[index]
         file_changed = self._sync_files_list_to_segment(seg.file_name or "(bez pliku)")
         self.source_edit.setPlainText(seg.source)
-        tgt = seg.target or ""
-        gloss = getattr(self.app, "glossary", None)
-        if gloss is not None and tgt:
-            try:
-                patched = gloss.replace_in_text(tgt)
-            except Exception:
-                patched = tgt
-            if patched != tgt:
-                seg.target = patched
-                tgt = patched
-        self.target_edit.setPlainText(tgt)
+        self.target_edit.setPlainText(seg.target)
         self.notes_edit.setPlainText(seg.notes)
         edges = describe_edges(seg.source)
         edge_note = f"  •  ␣ wcięcie: {edges}" if edges else ""
@@ -4610,7 +4600,9 @@ class EditorTab(QWidget):
                 text = copy_edge_whitespace(seg.source, text)
         if apply_glossary and getattr(self.app, "glossary", None) is not None:
             try:
-                text = self.app.glossary.replace_in_text(text)
+                seg = self.current_segment()
+                text = self.app.glossary.replace_in_text(
+                    text, only_if_in=(seg.source if seg else ""))
             except Exception:
                 pass
         self.target_edit.setPlainText(text)
@@ -4762,13 +4754,17 @@ class EditorTab(QWidget):
         else:
             self.sentence_info.setText(f"Znaleziono {len(sentences)} fragmentów zdań w TM")
         gloss = getattr(self.app, "glossary", None)
+        seg = self.current_segment()
+        src_for_gloss = (seg.source if seg else "") or ""
         for match in sentences:
             if gloss is not None:
                 try:
-                    match.assembled = gloss.replace_in_text(match.assembled)
+                    match.assembled = gloss.replace_in_text(
+                        match.assembled, only_if_in=src_for_gloss)
                     if match.line_pairs:
                         match.line_pairs = [
-                            (src, gloss.replace_in_text(tgt)) for src, tgt in match.line_pairs
+                            (s, gloss.replace_in_text(tg, only_if_in=src_for_gloss))
+                            for s, tg in match.line_pairs
                         ]
                 except Exception:
                     pass
@@ -4876,11 +4872,10 @@ class EditorTab(QWidget):
         if query:
             terms = glossary.search(query)
         elif seg:
+            # Jak w OmegaT: widać tylko trafienia z BIEŻĄCEGO segmentu.
             terms = glossary.find_terms(seg.source)
-            if not terms:
-                terms = list(glossary.entries[:80])
         else:
-            terms = list(glossary.entries[:80])
+            terms = []
         seen = set()
         for term in terms:
             key = (term.source, term.target)
@@ -4908,13 +4903,12 @@ class EditorTab(QWidget):
                 flags=_re.IGNORECASE,
             )
             if n:
-                self.set_target_text(new_text)
+                self.set_target_text(new_text, apply_glossary=False)
                 self.status_message.emit(
                     f"Glosariusz: wstawiono „{source_term}” → „{target_term}”")
                 return
-        cursor = self.target_edit.textCursor()
-        cursor.insertText(str(target_term or ""))
-        self.target_edit.setFocus()
+        self.status_message.emit(
+            "Glosariusz: tej frazy nie ma w tym zdaniu — nic nie doklejam")
 
     def _apply_glossary_to_target(self) -> None:
         """Podmienia w tłumaczeniu wszystkie frazy z glosariusza projektu."""
@@ -4922,10 +4916,11 @@ class EditorTab(QWidget):
         if not glossary.entries:
             return
         text = self.target_edit.toPlainText()
+        seg = self.current_segment()
         if not text.strip():
-            seg = self.current_segment()
             text = (seg.source if seg else "") or ""
-        new_text = glossary.replace_in_text(text)
+        new_text = glossary.replace_in_text(
+            text, only_if_in=(seg.source if seg else text))
         if new_text == text:
             self.status_message.emit("Glosariusz: nic do wstawienia w tym zdaniu")
             return

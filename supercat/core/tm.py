@@ -1086,6 +1086,9 @@ class TranslationMemory:
             db_target = self._index.targets[i]
             if db_target in seen:
                 continue
+            # {SHADOW LIGHT_GRAY} nie jest zdaniem — nie składaj z „SHADOW → CIENISTY”.
+            if len(_content_words(db_source)) < 3:
+                continue
             if filter_untranslated and _is_mostly_untranslated(db_source, db_target):
                 continue
             seen.add(db_target)
@@ -1314,10 +1317,10 @@ class TranslationMemory:
         aligned: dict[str, str] = {}
         whole_origin = ""
         try:
-            wholes = self.find_fuzzy_matches(segment, threshold=50, limit=3)
+            wholes = self.find_fuzzy_matches(segment, threshold=75, limit=3)
         except Exception:
             wholes = []
-        if wholes:
+        if wholes and getattr(wholes[0], "similarity", 0) >= 75:
             best = wholes[0]
             whole_origin = (getattr(best, "origin", "") or "").strip()
             for src_l, tgt_l in align_lines(best.original_source, best.original_target):
@@ -1395,7 +1398,7 @@ class TranslationMemory:
             pairs.append((line, shown))
             origins.append(origin)
 
-        if not used_other:
+        if not any(o in ("TM", "linia") for o in origins):
             return None
         coverage = int(round(
             sum(len(t) for _s, t in pairs if t != _s) * 100 / max(len(segment), 1)))
@@ -1880,6 +1883,18 @@ def _flatten_with_map(text: str) -> Tuple[str, List[int]]:
 #: Do ilu wyrazów wpis identyczny po obu stronach uznajemy za świadomy wybór
 #: tłumacza (nazwa własna, etykieta), a nie za pracę niedokończoną.
 _IDENTICAL_WORD_LIMIT = 4
+
+
+_TAG_WORDS = frozenset({
+    "color", "shadow", "font", "male", "female", "dark", "gray", "grey",
+    "light", "blue", "red", "green", "white", "black", "size", "pause",
+    "player", "string", "wait", "col", "kon",
+})
+
+
+def _content_words(text: str) -> set:
+    """Słowa treści — bez nazw znaczników gry ({SHADOW}, {COLOR BLUE})."""
+    return {w for w in _match_words(text) if w not in _TAG_WORDS}
 
 
 def _match_words(text: str) -> set:
