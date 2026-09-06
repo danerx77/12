@@ -844,8 +844,13 @@ class TranslationMemory:
         filter_untranslated = SettingsManager.instance().get_bool("tm.filter.english", True)
         matches: List[TranslationMatch] = []
         seen: set[str] = set()
+        seg_words = _content_words(source)
         for sim, i in scored:
             db_source = self._index.sources[i]
+            # Wspólne „What is this person like?” + te same kolory to za mało,
+            # gdy reszta zdania jest o kimś innym (BROCK vs ERIKA).
+            if not _covers_enough(seg_words, db_source, source):
+                continue
             # Warianty tego samego źródła (np. BALL → KULA / PIŁKA / BAL)
             # pokazujemy jako osobne podpowiedzi — w kolejności z pliku TM.
             for db_target in self._index.variants_for(i):
@@ -919,6 +924,8 @@ class TranslationMemory:
             if best_idx < 0:
                 continue
             db_source, db_target = self._index.sources[best_idx], self._index.targets[best_idx]
+            if not _covers_enough(_content_words(source), db_source, source):
+                continue
             if filter_untranslated and _is_mostly_untranslated(db_source, db_target):
                 continue
             results[pos] = TranslationMatch(
@@ -1095,6 +1102,9 @@ class TranslationMemory:
             # przelicz pozycje z tekstu spłaszczonego na oryginalny
             orig_start = flat_to_orig[start]
             orig_end = flat_to_orig[start + len(needle) - 1] + 1
+            span_len = max(1, orig_end - orig_start)
+            if db_target and len(db_target) > span_len * 2 + 24:
+                continue
             # To samo miejsce w segmencie może mieć kilka wpisów TM („Wild →
             # Dziki” i „WILD → Wrog”) — zostawiamy jedno (dłuższe), bo reszta
             # to dla tłumacza szum zamiast pomocy.
@@ -1134,6 +1144,7 @@ class TranslationMemory:
                 seen_line_pairs.add(signature)
                 k = flat.find(db_flat)
                 shown_target = db_target
+                span_text = db_source
                 if k >= 0:
                     orig_s = flat_to_orig[k]
                     orig_e = flat_to_orig[k + len(db_flat) - 1] + 1
@@ -1143,6 +1154,10 @@ class TranslationMemory:
                         shown_target = self.adapt_line_case(span_text, db_target)
                     else:
                         shown_target = self.adapt_case_to_source(span_text, db_target)
+                if shown_target and span_text and len(shown_target) > len(span_text) * 2 + 24:
+                    continue
+                if shown_target and len(shown_target) > len(haystack) * 1.35 + 24:
+                    continue
                 assembled = _replace_flat_span(haystack, flat, flat_to_orig, db_flat, shown_target)
                 coverage = int(round(len(db_flat) * 100 / max(len(flat), 1)))
                 line_matches.append(
@@ -1317,10 +1332,10 @@ class TranslationMemory:
         aligned: dict[str, str] = {}
         whole_origin = ""
         try:
-            wholes = self.find_fuzzy_matches(segment, threshold=75, limit=3)
+            wholes = self.find_fuzzy_matches(segment, threshold=85, limit=3)
         except Exception:
             wholes = []
-        if wholes and getattr(wholes[0], "similarity", 0) >= 75:
+        if wholes and getattr(wholes[0], "similarity", 0) >= 85:
             best = wholes[0]
             whole_origin = (getattr(best, "origin", "") or "").strip()
             for src_l, tgt_l in align_lines(best.original_source, best.original_target):
@@ -1917,7 +1932,7 @@ def _covers_enough(seg_words: set, candidate: str, segment_line: str) -> bool:
         # Sama cyfra albo znak („1”, „…”) — tylko pełna zgodność, inaczej
         # z pamięci wyskakują zupełnie obce zdania (tzw. wydmuszki).
         return (segment_line or "").strip().lower() == (candidate or "").strip().lower()
-    covered = len(seg_words & _match_words(candidate))
+    covered = len(seg_words & _content_words(candidate))
     # Jedno wspólne słowo to za mało („1” i „just one”); przy krótkiej linii
     # jedynego słowa nie da się wymagać dwóch.
     if covered < (2 if len(seg_words) >= 2 else 1):

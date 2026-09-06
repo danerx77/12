@@ -129,7 +129,9 @@ def normalize_tags_for_comparison(text: str | None) -> str:
     if not text:
         return ""
     result = text
-    result = re.sub(r"\{([A-Za-z_0-9]+)\}", "@", result)
+    # {PLAYER} oraz {COLOR BLUE} / {SHADOW LIGHT_GRAY} — inaczej wspólny
+    # nagłówek tagów zawyża podobieństwo obcych dialogów (Erika vs Brock).
+    result = re.sub(r"\{[^{}]*\}", "@", result)
     result = re.sub(r"\\[pPnNlL]", "~", result)
     result = result.replace("<<KON>>", "^")
     result = re.sub(r"<[^>]+>", "<", result)
