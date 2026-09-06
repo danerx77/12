@@ -237,8 +237,8 @@ class SettingsTab(QTabWidget):
         show_row.addStretch(1)
         rb_l.addLayout(show_row)
         place_hint = QLabel(
-            "Kolejność i miejsce: ↑↓ albo chwyć tytuł panelu w edytorze "
-            "i upuść w prawej kolumnie albo pod tłumaczeniem.")
+            "Kolejność i miejsce: ↑↓, lista obok, albo chwyć tytuł w edytorze. "
+            "Pas na dole ma całą szerokość; upuść na bok panelu, żeby stał obok.")
         place_hint.setWordWrap(True)
         place_hint.setStyleSheet("color: gray; font-size: 11px;")
         rb_l.addWidget(place_hint)
@@ -266,7 +266,8 @@ class SettingsTab(QTabWidget):
             name.setMinimumWidth(140)
             combo = QComboBox()
             combo.addItem("Prawa kolumna", "right")
-            combo.addItem("Pod tłumaczeniem", "below")
+            combo.addItem("Pod spodem — cała szerokość", "below")
+            combo.addItem("Pod spodem — obok innych", "below-row")
             combo.setCurrentIndex(1 if zones.get(key) == "below" else 0)
             combo.currentIndexChanged.connect(
                 lambda _i, k=key, c=combo: self._on_panel_zone(k, c.currentData()))
@@ -741,7 +742,29 @@ class SettingsTab(QTabWidget):
                 self.ui_font_size.blockSignals(False)
 
     def _on_panel_zone(self, key: str, zone) -> None:
+        editor = getattr(self.app, "editor_tab", None)
+        if editor is not None and hasattr(editor, "place_panel"):
+            if zone == "below-row":
+                # Dołącz do ostatniego rzędu na dole (obok), albo nowy rząd.
+                rows = editor._below_rows() if hasattr(editor, "_below_rows") else []
+                beside = None
+                if rows and rows[-1]:
+                    beside = rows[-1][-1]
+                    if beside == key and len(rows[-1]) > 1:
+                        beside = rows[-1][0]
+                    elif beside == key:
+                        beside = None
+                if beside:
+                    editor.place_panel(key, zone="below", beside=beside, side="right")
+                else:
+                    editor.place_panel(key, zone="below")
+                return
+            if zone in ("right", "below"):
+                editor.place_panel(key, zone=zone)
+                return
         import json as _json
+        if zone == "below-row":
+            zone = "below"
         if zone not in ("right", "below"):
             return
         try:

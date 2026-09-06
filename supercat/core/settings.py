@@ -67,6 +67,7 @@ DEFAULTS: Dict[str, Any] = {
     "tm.panel.layout": "stacked",
     "tm.panel.order": '["matches", "sentences", "terms", "conc", "mt", "lang", "notes"]',
     "tm.panel.zones": "{}",
+    "tm.panel.below.rows": "[]",
     #: Które panele po prawej w ogóle pokazywać.
     "tm.panel.show.matches": True,
     "tm.panel.show.sentences": True,

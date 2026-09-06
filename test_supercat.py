@@ -4450,12 +4450,22 @@ Dziękujemy za korzystanie z MYSTERY"""
     check("panel: TM można umieścić pod tłumaczeniem",
           w.editor_tab.panel_zone("matches") == "below"
           and getattr(w.editor_tab, "_below_stack", None) is not None)
+    host = w.editor_tab._below_host
+    check("panel: pas dolny na całą szerokość (bez limitu 36 px)",
+          host.maximumHeight() > 100, str(host.maximumHeight()))
+    w.editor_tab.place_panel("sentences", zone="below", beside="matches", side="right")
+    rows = w.editor_tab._below_rows()
+    check("panel: TM obok dopasowania zdań (jeden rząd)",
+          any(r == ["matches", "sentences"] or r == ["sentences", "matches"] for r in rows),
+          str(rows))
     w.editor_tab.place_panel("matches", zone="right")
+    w.editor_tab.place_panel("sentences", zone="right")
     check("panel: TM wraca do prawej kolumny",
           w.editor_tab.panel_zone("matches") == "right")
     smgr2.set("tm.panel.zones", _zones_prev)
     if _order_prev:
         smgr2.set("tm.panel.order", _order_prev)
+    smgr2.set("tm.panel.below.rows", "[]")
     w.editor_tab.apply_panel_layout()
 
     # ikona aplikacji (.ico do EXE)
