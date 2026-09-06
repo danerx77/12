@@ -690,7 +690,7 @@ class DockableGroup(QGroupBox):
         self._drop_side: str | None = None
         self.setAcceptDrops(True)
         self.setProperty("sc_panel_key", key)
-        self.setCursor(Qt.CursorShape.SizeAllCursor)
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
         self.setToolTip(
             "Chwyć tytuł i przeciągnij. Podświetlenie pokazuje, co się stanie:\n"
             "bok = obok, góra/dół = kolejność (jeden pod drugim).\n"
@@ -785,38 +785,40 @@ class DockableGroup(QGroupBox):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         rect = self.rect()
-        labels = {
-            "left": "Obok ←",
-            "right": "Obok →",
-            "above": "Nad (kolejność)",
-            "below": "Pod (kolejność)",
-            "before": "Tutaj (kolejność)",
-        }
-        colors = {
-            "left": QColor(66, 165, 245, 110),
-            "right": QColor(66, 165, 245, 110),
-            "above": QColor(255, 183, 77, 120),
-            "below": QColor(255, 183, 77, 120),
-            "before": QColor(129, 199, 132, 110),
-        }
-        band = QColor(colors.get(side, QColor(255, 255, 255, 80)))
-        area = rect
-        thick = max(28, int(min(rect.width(), rect.height()) * 0.22))
-        if side == "left":
-            area = rect.adjusted(0, 0, thick - rect.width(), 0)
-        elif side == "right":
-            area = rect.adjusted(rect.width() - thick, 0, 0, 0)
-        elif side == "above":
-            area = rect.adjusted(0, 0, 0, thick - rect.height())
-        elif side == "below":
-            area = rect.adjusted(0, rect.height() - thick, 0, 0)
-        painter.fillRect(area, band)
-        painter.setPen(QColor(255, 255, 255, 230))
-        font = QFont(self.font())
-        font.setBold(True)
-        font.setPointSize(max(10, font.pointSize() + 1))
-        painter.setFont(font)
-        painter.drawText(rect, int(Qt.AlignmentFlag.AlignCenter), labels.get(side, side))
+        painter.fillRect(rect, QColor(0, 0, 0, 70))
+
+        def _label(area, text, active, fill):
+            if area.width() < 8 or area.height() < 8:
+                return
+            painter.fillRect(area, fill)
+            if active:
+                painter.setPen(QPen(QColor(255, 255, 255, 230), 3))
+                painter.drawRect(area.adjusted(3, 3, -3, -3))
+            painter.setPen(QColor(255, 255, 255) if active else QColor(220, 220, 220, 180))
+            font = QFont(self.font())
+            font.setBold(True)
+            font.setPointSize(max(9, self.font().pointSize()))
+            painter.setFont(font)
+            painter.drawText(area, int(Qt.AlignmentFlag.AlignCenter), text)
+
+        if side == "before":
+            _label(rect, "Wstaw tutaj\n(kolejność)", True, QColor(76, 175, 80, 150))
+            painter.end()
+            return
+        w, h = rect.width(), rect.height()
+        left = rect.adjusted(0, 0, int(w * 0.20) - w, 0)
+        right = rect.adjusted(int(w * 0.80), 0, 0, 0)
+        mid = rect.adjusted(int(w * 0.20), 0, int(w * 0.20) - w, 0)
+        top = mid.adjusted(0, 0, 0, int(mid.height() * 0.40) - mid.height())
+        bot = mid.adjusted(0, int(mid.height() * 0.40), 0, 0)
+        zones = (
+            ("left", left, "OBOK\n←", QColor(33, 150, 243, 90), QColor(33, 150, 243, 190)),
+            ("right", right, "OBOK\n→", QColor(33, 150, 243, 90), QColor(33, 150, 243, 190)),
+            ("above", top, "NAD\n(kolejność)", QColor(255, 152, 0, 80), QColor(255, 152, 0, 190)),
+            ("below", bot, "POD\n(kolejność)", QColor(255, 152, 0, 80), QColor(255, 152, 0, 190)),
+        )
+        for name, area, text, faint, strong in zones:
+            _label(area, text, name == side, strong if name == side else faint)
         painter.end()
 
     def contextMenuEvent(self, event) -> None:  # noqa: N802
@@ -2385,12 +2387,14 @@ class EditorTab(QWidget):
             hs.setChildrenCollapsible(False)
             hs.setHandleWidth(max(8, hs.handleWidth()))
             hs.setMinimumHeight(preferred)
-            hs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+            hs.setMaximumHeight(16777215)
+            hs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             for key in row:
                 title, w, _k = by_key[key]
                 grp = DockableGroup(title, key, self)
                 grp.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
                 grp.setMinimumHeight(preferred)
+                grp.setMaximumHeight(16777215)
                 gl = QVBoxLayout(grp)
                 gl.setContentsMargins(8, 8, 8, 8)
                 gl.setSpacing(6)
@@ -2459,15 +2463,36 @@ class EditorTab(QWidget):
                 sizes.append(max(preferred, int(raw[index])))
             else:
                 sizes.append(preferred)
-        height = sum(sizes) + extra
+        content = sum(sizes) + extra
         width = stack.width() or self.width()
+        viewport_h = 0
         if scroll is not None and scroll.viewport() is not None:
             vw = scroll.viewport().width()
+            viewport_h = scroll.viewport().height()
             if vw > 0:
                 width = vw
-        stack.setMinimumHeight(height)
+        # Wolne miejsce w pasie (np. jeden rząd TM | zdania) → powiększ
+        # rzędy, zamiast zostawiać pustkę. Gdy brakuje miejsca — suwak.
+        spare = max(0, viewport_h - content)
+        if spare and real:
+            add, rem = divmod(spare, real)
+            filled = []
+            given = 0
+            for index, value in enumerate(sizes):
+                child = stack.widget(index)
+                dummy = (child is not None and child.objectName() == "sc_right_tail")
+                if dummy:
+                    filled.append(0)
+                    continue
+                extra_px = add + (1 if given < rem else 0)
+                given += 1
+                filled.append(value + extra_px)
+            sizes = filled
+            content = sum(sizes) + extra
+        height = max(content, viewport_h or content)
+        stack.setMinimumHeight(max(content, 1))
         if stack.width() != width or stack.height() != height:
-            stack.resize(max(1, width), height)
+            stack.resize(max(1, width), max(1, height))
         if list(stack.sizes()) != sizes:
             stack.setSizes(sizes)
 
