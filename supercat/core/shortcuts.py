@@ -70,6 +70,7 @@ SHORTCUTS: List[ShortcutDef] = [
     ShortcutDef("mark_approved", "Ctrl+Shift+4", "Oznacz jako zatwierdzony", "Oznaczenia"),
     ShortcutDef("ignore_selected", "Ctrl+Shift+I", "Pomiń zaznaczone segmenty", "Oznaczenia"),
     ShortcutDef("restore_selected", "Ctrl+Shift+R", "Przywróć zaznaczone segmenty", "Oznaczenia"),
+    ShortcutDef("clear_selected", "Ctrl+Shift+Delete", "Usuń tłumaczenie zaznaczonych (status nowy)", "Oznaczenia"),
 
     # --- narzędzia ---
     ShortcutDef("find_replace", "Ctrl+F", "Znajdź i zamień", "Narzędzia", editor=False),

@@ -1239,7 +1239,7 @@ class EditorTab(QWidget):
              self.restore_source_indent),
             ("🚫 Pomiń", _sc.with_shortcut("ignore_selected", "pomiń zaznaczone segmenty (nie będą liczone)"),
              self.ignore_selected),
-            ("🧹 Wyczyść", "Wyczyść tłumaczenie", self.clear_target),
+            ("🧹 Wyczyść", "Wyczyść tłumaczenie zaznaczonych (status nowy)", self.clear_selected),
         ):
             btn = QPushButton(text)
             btn.setToolTip(tip)
@@ -1724,6 +1724,7 @@ class EditorTab(QWidget):
             "mark_approved": self.approve_current,
             "ignore_selected": self.ignore_selected,
             "restore_selected": self.restore_selected,
+            "clear_selected": self.clear_selected,
             "first_segment": self.first_segment,
             "last_segment": self.last_segment,
         }
@@ -3548,6 +3549,8 @@ class EditorTab(QWidget):
         selected = self.selected_indices()
         count = len(selected)
         suffix = f" ({count} zaznaczonych)" if count > 1 else ""
+        act_clear = menu.addAction(f"🧹 Usuń zaznaczone{suffix}")
+        act_clear.setToolTip("Kasuje tłumaczenie i stawia status „nowy”.")
         act_ignore = menu.addAction(f"🚫 Pomiń zaznaczone{suffix}")
         act_restore = menu.addAction(f"↩️ Przywróć zaznaczone{suffix}")
         act_toggle = menu.addAction("🔁 Odwróć pominięcie")
@@ -3620,6 +3623,8 @@ class EditorTab(QWidget):
             self.show_alternative_translations()
         elif action == act_approve:
             self.approve_current()
+        elif action == act_clear:
+            self.clear_selected()
         elif action == act_ignore:
             self.ignore_selected()
 
@@ -3774,8 +3779,7 @@ class EditorTab(QWidget):
         if 0 <= self.current_index < len(self.segments):
             seg = self.segments[self.current_index]
             seg.target = self.target_edit.toPlainText()
-            if seg.target.strip() and seg.status in ("new", ""):
-                seg.status = "draft"
+            self._sync_status_from_target(seg)
 
     def next_untranslated(self) -> None:
         """Ctrl+U – następny segment bez tłumaczenia (jak w OmegaT)."""
@@ -4540,8 +4544,7 @@ class EditorTab(QWidget):
             self._tm_upsert_timer.start(2500)
         seg = self.segments[self.current_index]
         seg.target = self.target_edit.toPlainText()
-        if seg.target.strip() and seg.status in ("new", ""):
-            seg.status = "draft"
+        self._sync_status_from_target(seg)
         self._update_row(self.current_index)
         self.update_progress()
 
@@ -4611,8 +4614,76 @@ class EditorTab(QWidget):
     def copy_source_to_target(self) -> None:
         self.set_target_text(self.source_edit.toPlainText())
 
+    def _sync_status_from_target(self, seg) -> None:
+        """Puste tłumaczenie = oznaczenie „nowy”; wpisany tekst z „nowy” = roboczy."""
+        if (seg.target or "").strip():
+            if seg.status in ("new", ""):
+                seg.status = "draft"
+        elif seg.status not in ("new", ""):
+            seg.status = "new"
+
     def clear_target(self) -> None:
+        """Czyści tłumaczenie bieżącego segmentu — status wraca na „nowy”."""
         self.target_edit.clear()
+
+    def clear_selected(self) -> None:
+        """Usuwa tłumaczenie zaznaczonych segmentów i stawia status „nowy”."""
+        indices = self.selected_indices()
+        if not indices:
+            return
+        if len(indices) == 1 and indices[0] == self.current_index:
+            self.target_edit.clear()
+            return
+        filled = [
+            i for i in indices
+            if (self.segments[i].target or "").strip()
+            or self.segments[i].status not in ("new", "")
+        ]
+        if not filled:
+            self.status_message.emit("Zaznaczone segmenty są już puste (nowe)")
+            return
+        if len(filled) > 1:
+            if QMessageBox.question(
+                self, "Usuń zaznaczone",
+                f"Usunąć tłumaczenie <b>{len(filled)}</b> zaznaczonych segmentów?\n"
+                "Status każdego wróci na <b>nowy</b>.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            ) != QMessageBox.StandardButton.Yes:
+                return
+        self._store_current()
+        if getattr(self, "_tm_upsert_timer", None) is not None:
+            self._tm_upsert_timer.stop()
+        self._tm_pending = set()
+        history: list = []
+        tm = getattr(self.app, "tm", None)
+        for index in filled:
+            seg = self.segments[index]
+            if (seg.target or "") != "":
+                history.append((index, "target", seg.target))
+                seg.target = ""
+            if seg.status != "new":
+                history.append((index, "status", seg.status))
+                seg.status = "new"
+            if tm is not None and getattr(tm, "is_initialized", False):
+                try:
+                    tm.upsert_from_segment(
+                        seg.source, "",
+                        self.app.project.source_lang if self.app.project else "en",
+                        self.app.project.target_lang if self.app.project else "pl",
+                        origin_id=self._tm_origin_id(seg),
+                    )
+                except Exception:
+                    pass
+            self._update_row(index)
+        if history:
+            self._push_undo(f"usunięcie zaznaczonych ({len(filled)})", history)
+        if self.current_index in filled:
+            self.load_segment(self.current_index)
+        self.update_progress()
+        self._save_quietly()
+        self.status_message.emit(
+            f"🧹 Usunięto tłumaczenie {len(filled)} segmentów → status nowy")
 
     def current_segment(self) -> Optional[Segment]:
         if 0 <= self.current_index < len(self.segments):

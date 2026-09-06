@@ -222,6 +222,8 @@ class MainWindow(QMainWindow):
                          lambda: self.editor_tab.ignore_selected(), shortcut_key="ignore_selected")
         self._add_action(project_menu, "Przywróć zaznaczone segmenty", None,
                          lambda: self.editor_tab.restore_selected(), shortcut_key="restore_selected")
+        self._add_action(project_menu, "Usuń zaznaczone (tłumaczenie → nowy)", None,
+                         lambda: self.editor_tab.clear_selected(), shortcut_key="clear_selected")
         self._add_action(project_menu, "🏷️ Oznacz pasujące do wzorca…", None,
                          lambda: self.editor_tab.bulk_mark_matching())
         self._add_action(project_menu, "Pomiń pasujące do wzorca…", None,
